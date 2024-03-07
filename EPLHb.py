@@ -156,7 +156,8 @@ class EPLHb(nn.Module):
             # Iterate through test dataset
             for test_data, test_labels in test_loader:
               if self.rnn: test_data = test_data.view(-1,1, self.EP_size)
-              elif data.ndim != 2: test_data = test_data.view(-1, self.EP_size)
+              elif test_data.ndim != 2: test_data = test_data.view(-1, self.EP_size)
+
               test_outputs = self(test_data)
               _, predicted = torch.max(test_outputs.data, 1)
               total += test_labels.size(0)
@@ -168,7 +169,7 @@ class EPLHb(nn.Module):
               print('Epoch [%d/%d], Iteration: %d, Loss: %.4f, Accuracy: %.4f' %(epoch+1, num_epochs, i, loss.data, accuracy))
           
           else:
-            print('Epoch [%d/%d], Loss: %.4f'  %(epoch+1, num_epochs, loss.data))
+            print('Epoch [%d/%d], Iteration: %d, Loss: %.4f'  %(epoch+1, num_epochs, i, loss.data))
       # scheduler.step()
 
     return training_loss, test_accuracy
@@ -241,3 +242,18 @@ class adam(torch.optim.Optimizer):
 				if group["fixed_sign"]: 
 					flip_mask = init_weights[i].sign()*p.data.sign()<0
 					p.data[flip_mask] = 0
+                    
+
+
+class NeuronalData(torch.utils.data.Dataset):
+    def __init__(self, inputs, labels):
+        self.inputs = inputs
+        self.labels = labels
+
+    def __len__(self):
+        return len(self.inputs)
+
+    def __getitem__(self, idx):
+        input_data = self.inputs[idx]
+        label = self.labels[idx]
+        return input_data, label
