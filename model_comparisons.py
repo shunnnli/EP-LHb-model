@@ -39,7 +39,7 @@ update_methods = ['corelease','fixed_sign']
 EP_size = 784 # img_size = (28,28) ---> 28*28=784 in total
 LHb_size = 500 # number of nodes at hidden layer
 DAN_size = 10 # number of output classes discrete range [0,9]
-num_epochs = 20 # number of times which the entire dataset is passed throughout the model
+num_epochs = 10 # number of times which the entire dataset is passed throughout the model
 lr = 1e-3 # size of step
 
 prob_EP_to_LHb = 1
