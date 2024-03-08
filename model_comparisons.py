@@ -110,7 +110,7 @@ for LHb in LHb_network:
 
 # Save as pickle file
 today = date.today()
-filename = 'Results/model_comparison_'+today.strftime("%Y%m%d")+'.pkl'
+filename = 'results/model_comparison_'+today.strftime("%Y%m%d")+'.pkl'
 print('Saving to',filename)
 
 with open(filename, 'wb') as f:
