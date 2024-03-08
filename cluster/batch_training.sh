@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH -p serial_requeue # partition (queue)
-#SBATCH --account kempner_bsabatini_lab
+#SBATCH -p kempner_requeue # partition (queue)
+#SBATCH --account=kempner_bsabatini_lab
 #SBATCH --job-name=eplhb-models     # create a short name for your job
 #SBATCH --nodes=1                # node count
 #SBATCH --ntasks-per-node=1      # total number of tasks per node
