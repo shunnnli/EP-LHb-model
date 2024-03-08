@@ -1,35 +1,19 @@
 #!/bin/bash
-#SBATCH --job-name=EPLHb_models    # create a short name for your job
+#SBATCH -p kempner_requeue # partition (queue)
+#SBATCH --account kempner_bsabatini_lab
+#SBATCH --job-name=eplhb-models     # create a short name for your job
 #SBATCH --nodes=1                # node count
 #SBATCH --ntasks-per-node=1      # total number of tasks per node
-#SBATCH --cpus-per-task=1        # cpu-cores per task (>1 if multi-threaded tasks)
-#SBATCH --mem=100M                # total memory per node (4 GB per cpu-core is default)
-#SBATCH --time=01:00:00          # total run time limit (HH:MM:SS)
-#SBATCH --mail-type=begin        # send email when job begins
-#SBATCH --mail-type=end          # send email when job ends
-#SBATCH --output=/dev/null       # no output message
-#SBATCH --dependency=singleton
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:1             # number of allocated gpus per node
+#SBATCH --cpus-per-task=16        # cpu-cores per task (>1 if multi-threaded tasks)
+#SBATCH --mem=250G                # total memory per node (16 GB per cpu-core is default)
+#SBATCH --time=00:30:00          # total run time limit (HH:MM:SS)
+#SBATCH -o ddp/%j.out # STDOUT
+#SBATCH -e ddp/%j.err # STDERR
+#SBATCH --mail-type END,FAIL
+#SBATCH --mail-user shun.li@g.harvard.edu
 
-source cluster/slurm_settings.txt
-mkdir -p $JOB_FOLDER
-logfile="${JOB_FOLDER}/slurm-${SLURM_JOB_ID}.out"
+module load python/3.10.12-fasrc01
+mamba activate eplhbmodel
 
-echo "Writing to ${logfile}"
-echo "Writing in ${logfile}" >> $logfile
-
-module purge
-module load python
-conda activate eplhbmodel
-
-start_time=$(date +%s)
-
-python -c "print('hello world')" >> $logfile
-python model_comparisons.py >> $logfile
-
-end_time=$(date +%s)
-
-total_time=$((end_time-start_time))
-echo "Total Time= "$total_time" seconds" >> $logfile
-
-echo "Finished."
+srun python ~/code/networkAlignmentAnalysis/model_comparisons.py
