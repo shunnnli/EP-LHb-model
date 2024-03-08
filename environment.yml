@@ -7,8 +7,6 @@ dependencies:
   - pip
   - pytorch
   - torchvision
-  - torchaudio
-  - pytorch-cuda=12.1
   - numpy
   - scipy
   - scikit-learn
