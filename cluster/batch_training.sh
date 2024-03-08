@@ -16,4 +16,5 @@
 module load python/3.10.12-fasrc01
 mamba activate eplhbmodel
 
+python -c 'print("Batch experiments started...")'
 srun python ~/code/EP-LHb-model/model_comparisons.py
