@@ -24,7 +24,7 @@ EP_size = 784 # img_size = (28,28) ---> 28*28=784 in total
 LHb_size = 500 # number of nodes at hidden layer
 DAN_size = 10 # number of output classes discrete range [0,9]
 num_epochs = 200 # number of times which the entire dataset is passed throughout the model
-lr = 1e-3 # size of step
+lr = 1e-2 # size of step
 
 prob_EP_to_LHb = 1
 prob_LHb_to_LHb = 1
@@ -39,17 +39,18 @@ prob_input_active = 0.05 # probability that an input is active in each context
 prob_output_active = 0.125
 n_contexts = 5000
 prob_EP_flip = 0.05
+generator = torch.manual_seed(0)
 
 # Generate initial random data
-rands = torch.rand(n_contexts, EP_size, device=device)
+rands = torch.rand(n_contexts, EP_size, device=device, generator=generator)
 train_data = 1.0*(rands<prob_input_active) - 1.0*(rands>(1-prob_input_active))
-rands = torch.rand(n_contexts, device=device)
+rands = torch.rand(n_contexts, device=device ,generator=generator)
 if label_type == 'analog': train_labels = 2*rands-1
 else: train_labels = 1.0*(rands<prob_output_active) - 1.0*(rands>(1-prob_output_active))
 train_labels = torch.transpose(train_labels.repeat(DAN_size, 1).squeeze(), 0, 1)
 
 # Randomly select inputs, and flip corresponding labels
-input_mask = torch.rand(EP_size,device=device) < prob_EP_flip
+input_mask = torch.rand(EP_size,device=device,generator=generator) < prob_EP_flip
 flip_EP = torch.linspace(1,EP_size,EP_size)[input_mask].to(torch.int32)
 flip_idx = train_data.nonzero()[torch.isin(train_data.nonzero()[:,1], flip_EP),0].unique()
 train_labels_flipped = train_labels.clone()
