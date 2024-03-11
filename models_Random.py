@@ -3,10 +3,8 @@
 
 import torch
 import torch.nn as nn
-import torchvision.datasets as datasets
-import torchvision.transforms as transforms
 
-from EPLHb import EPLHb, gd, adam
+from EPLHb import EPLHb, gd, adam, NeuronalData
 
 import numpy as np
 from scipy import stats
@@ -14,20 +12,6 @@ import pickle
 from datetime import date
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-
-# Downloading MNIST data
-train_data = datasets.MNIST(root = './data', train = True,
-                        transform = transforms.ToTensor(), download = True)
-
-test_data = datasets.MNIST(root = './data', train = False,
-                       transform = transforms.ToTensor())
-
-# Loading the data
-batch_size = 100 # the size of input data took for one iteration
-train_loader = torch.utils.data.DataLoader(dataset = train_data,batch_size = batch_size,shuffle = True)
-test_loader = torch.utils.data.DataLoader(dataset = test_data,batch_size = batch_size,shuffle = False)
-
 
 # Define conditions
 LHb_network = ['MLP','RNN']
@@ -39,7 +23,7 @@ update_methods = ['corelease','fixed_sign']
 EP_size = 784 # img_size = (28,28) ---> 28*28=784 in total
 LHb_size = 500 # number of nodes at hidden layer
 DAN_size = 10 # number of output classes discrete range [0,9]
-num_epochs = 10 # number of times which the entire dataset is passed throughout the model
+num_epochs = 200 # number of times which the entire dataset is passed throughout the model
 lr = 1e-3 # size of step
 
 prob_EP_to_LHb = 1
@@ -49,8 +33,44 @@ prob_LHb_to_DAN = 1
 n_networks = 20 # number of networks to train
 
 
+# Generate data
+label_type = 'digital' # or 'digital'
+prob_input_active = 0.05 # probability that an input is active in each context
+prob_output_active = 0.125
+n_contexts = 5000
+prob_EP_flip = 0.05
+
+# Generate initial random data
+rands = torch.rand(n_contexts, EP_size, device=device)
+train_data = 1.0*(rands<prob_input_active) - 1.0*(rands>(1-prob_input_active))
+rands = torch.rand(n_contexts, device=device)
+if label_type == 'analog': train_labels = 2*rands-1
+else: train_labels = 1.0*(rands<prob_output_active) - 1.0*(rands>(1-prob_output_active))
+train_labels = torch.transpose(train_labels.repeat(DAN_size, 1).squeeze(), 0, 1)
+
+# Randomly select inputs, and flip corresponding labels
+input_mask = torch.rand(EP_size,device=device) < prob_EP_flip
+flip_EP = torch.linspace(1,EP_size,EP_size)[input_mask].to(torch.int32)
+flip_idx = train_data.nonzero()[torch.isin(train_data.nonzero()[:,1], flip_EP),0].unique()
+train_labels_flipped = train_labels.clone()
+train_labels_flipped[flip_idx] *= -1
+
+n_flip = flip_idx.shape[0]
+print('Flipped percentage: %.3f%%, %d/%d' % (100*n_flip/n_contexts, n_flip, n_contexts))
+print('Flipped EP neurons: ' + str(flip_EP.numpy()))
+
+# Packaged into dataset
+batch_size = 100
+
+train_dataset = NeuronalData(train_data,train_labels)
+train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
+
+flip_dataset = NeuronalData(train_data,train_labels_flipped)
+flip_loader = torch.utils.data.DataLoader(dataset=flip_dataset, batch_size=batch_size, shuffle=True)
+
+
 # Train different networks
-training_loss_summary, test_accuracy_summary = {}, {}
+training_loss_summary, relearn_loss_summary = {}, {}
 
 for LHb in LHb_network:
     for init in initialization:
@@ -59,7 +79,7 @@ for LHb in LHb_network:
                 print('LHb: ',LHb, '; Initialization:',init,'; Network:',struct,'; Method:',method)
                 
                 # Initialize network-specific loss and accuracy summary
-                network_training_loss, network_test_accuracy = [], []
+                network_training_loss, network_relearn_loss = [], []
 
                 # Initialize network params
                 if LHb == 'MLP': rnn = False
@@ -77,39 +97,42 @@ for LHb in LHb_network:
                     net = EPLHb(EP_size,LHb_size,DAN_size,
                                 LHb_rnn=rnn,fixed_sign=fixed_sign_init,real_circuit=real_circuit,
                                 prob_EP_to_LHb=prob_EP_to_LHb,prob_LHb_to_LHb=prob_LHb_to_LHb,prob_LHb_to_DAN=prob_LHb_to_DAN)
-                    initial_params = net.record_params(calc_sign=False)
-                    training_loss, test_accuracy = [], []
                     if torch.cuda.is_available(): net.cuda()
+
+                    training_loss, relearn_loss = [], []
 
                     # Train on original data
                     optimizer = adam(net.parameters(), lr=lr, fixed_sign=fixed_sign_update)
                     # scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
-                    training_loss, test_accuracy = net.train_model(num_epochs,train_loader,optimizer,
-                                                    test_loader=test_loader,print_epoch=False,loss='CrossEntropyLoss')
-                    # training_loss.extend(training_loss)
-                    # test_accuracy.extend(test_accuracy)
+                    training_loss, _ = net.train_model(num_epochs,train_loader,optimizer,
+                                                    print_epoch=False,loss='MSE')
+
+                    # Train on flipped data
+                    optimizer = adam(net.parameters(), lr=lr, fixed_sign=fixed_sign_update)
+                    relearn_loss, _ = net.train_model(num_relearn_epochs,flip_loader,optimizer,
+                                                    print_epoch=False,loss='MSE')
 
                     network_training_loss.append(training_loss)
-                    network_test_accuracy.append(test_accuracy)
+                    network_relearn_loss.append(relearn_loss)
                     print('Finished training network %d/%d' %(i,n_networks))
 
                 # Convert list to numpy array
                 network_training_loss = np.array(network_training_loss)
-                network_test_accuracy = np.array(network_test_accuracy)
+                network_relearn_loss = np.array(network_relearn_loss)
 
                 # Store name and stats of network to summary
                 network_name = LHb+'_'+init+'_'+struct+'_'+method
                 training_loss_summary[network_name] = network_training_loss
-                test_accuracy_summary[network_name] = network_test_accuracy
+                relearn_loss_summary[network_name] = network_relearn_loss
 
 
 # Save as pickle file
 today = date.today()
-filename = '~/code/EP-LHb-model/results/MNIST/model_comparison_'+today.strftime("%Y%m%d")+'.pkl'
+filename = '~/code/EP-LHb-model/results/Random/model_comparison_'+today.strftime("%Y%m%d")+'.pkl'
 print('Saving to',filename)
 
 with open(filename, 'wb') as f:
-    data = [training_loss_summary, test_accuracy_summary]
+    data = [training_loss_summary, relearn_loss_summary]
     pickle.dump(data, f)
 
 print('Done')

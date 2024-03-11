@@ -5,13 +5,13 @@ import math
 
 class EPLHb(nn.Module):
   def __init__(self, EP_size, LHb_size, DAN_size, 
-               rnn: bool=False,
+               LHb_rnn: bool=False,
                fixed_sign: bool=False, real_circuit: bool=True, 
                prob_EP_to_LHb: float=1, prob_LHb_to_LHb: float=1, prob_LHb_to_DAN: float=1):
     super(EPLHb,self).__init__()
     
     # Initialize layers
-    if rnn: 
+    if LHb_rnn: 
       self.LHb_RNN = nn.RNN(EP_size, LHb_size, batch_first=True, bias=True)
     else: 
       self.EP_to_LHb = nn.Linear(EP_size, LHb_size, bias=True)
@@ -21,7 +21,7 @@ class EPLHb(nn.Module):
     # nn.init.xavier_normal_(self.LHb_to_DAN.weight)
    
     with torch.no_grad():
-      if rnn:
+      if LHb_rnn:
         # Make EP to LHb sparse
         n_zeros = int((1-prob_EP_to_LHb) * self.LHb_RNN.weight_ih_l0.numel())
         sparse_idx_EP = torch.randperm(self.LHb_RNN.weight_ih_l0.numel())[:n_zeros]
@@ -39,7 +39,7 @@ class EPLHb(nn.Module):
       
       if real_circuit: 
         # Make LHb to LHb all excitatory
-        if rnn: self.LHb_RNN.weight_hh_l0.data = torch.abs(self.LHb_RNN.weight_hh_l0.data)
+        if LHb_rnn: self.LHb_RNN.weight_hh_l0.data = torch.abs(self.LHb_RNN.weight_hh_l0.data)
         # Make LHb to DAN all negative
         self.LHb_to_DAN.weight.data = -torch.abs(self.LHb_to_DAN.weight)
       
@@ -57,13 +57,14 @@ class EPLHb(nn.Module):
             param.data[:,neg_neurons[name]] = -torch.sign(param[:,neg_neurons[name]])*param[:,neg_neurons[name]]
     
     self.relu = nn.ReLU()
+    # self.tanh = nn.Tanh()
     self.tanh = nn.Tanh()
 
     # Store information
     self.EP_size = EP_size
     self.LHb_size = LHb_size
     self.DAN_size = DAN_size
-    self.rnn = rnn
+    self.LHb_rnn = LHb_rnn
     self.real_circuit = real_circuit
     self.fixed_sign = fixed_sign
     self.sparse_idx_EP = sparse_idx_EP
@@ -75,7 +76,7 @@ class EPLHb(nn.Module):
   def enforce_weights(self):
     with torch.no_grad():
       # Make EP to LHb sparse
-      if self.rnn: self.LHb_RNN.weight_ih_l0.data.view(-1)[self.sparse_idx_EP] = 0
+      if self.LHb_rnn: self.LHb_RNN.weight_ih_l0.data.view(-1)[self.sparse_idx_EP] = 0
       else: self.EP_to_LHb.weight.data.view(-1)[self.sparse_idx_EP] = 0
 
       # Keep LHb to DAN sparse
@@ -83,12 +84,12 @@ class EPLHb(nn.Module):
       
       if self.real_circuit:
         # Make LHb to LHb all excitatory
-        if self.rnn: self.LHb_RNN.weight_hh_l0.data = torch.max(self.LHb_RNN.weight_hh_l0.data, 0*self.LHb_RNN.weight_hh_l0.data)
+        if self.LHb_rnn: self.LHb_RNN.weight_hh_l0.data = torch.max(self.LHb_RNN.weight_hh_l0.data, 0*self.LHb_RNN.weight_hh_l0.data)
         # Make LHb to DAN all negative
         self.LHb_to_DAN.weight.data=torch.minimum(self.LHb_to_DAN.weight, 0*self.LHb_to_DAN.weight)
 
   def forward(self, input):
-    if self.rnn:
+    if self.LHb_rnn:
       # Initialize hidden state with zeros
       h0 = torch.zeros(1, input.size(0), self.LHb_size)
       hidden, _ = self.LHb_RNN(input, h0)
@@ -137,7 +138,7 @@ class EPLHb(nn.Module):
       for i, (data,labels) in enumerate(train_loader):
         optimizer.zero_grad()
 
-        if self.rnn: data = data.view(-1,1, self.EP_size)
+        if self.LHb_rnn: data = data.view(-1,1, self.EP_size)
         elif data.ndim != 2: data = data.view(-1, self.EP_size)
         outputs = self(data)
 
@@ -155,7 +156,7 @@ class EPLHb(nn.Module):
             correct, total = 0, 0
             # Iterate through test dataset
             for test_data, test_labels in test_loader:
-              if self.rnn: test_data = test_data.view(-1,1, self.EP_size)
+              if self.LHb_rnn: test_data = test_data.view(-1,1, self.EP_size)
               elif test_data.ndim != 2: test_data = test_data.view(-1, self.EP_size)
 
               test_outputs = self(test_data)
