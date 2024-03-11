@@ -169,7 +169,7 @@ class EPLHb(nn.Module):
               print('Epoch [%d/%d], Iteration: %d, Loss: %.4f, Accuracy: %.4f' %(epoch+1, num_epochs, i, loss.data, accuracy))
           
           else:
-            print('Epoch [%d/%d], Iteration: %d, Loss: %.4f'  %(epoch+1, num_epochs, i, loss.data))
+            if print_epoch: print('Epoch [%d/%d], Iteration: %d, Loss: %.4f'  %(epoch+1, num_epochs, i, loss.data))
       # scheduler.step()
 
     return training_loss, test_accuracy
