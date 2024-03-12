@@ -125,18 +125,25 @@ class EPLHb(nn.Module):
                   loss: str='MSE',
                   print_epoch: bool=True,
                   test_loader: torch.utils.data.DataLoader=None):
-
-    # Define loss function
+    
+    # Define lists to store the loss and accuracys
     training_loss = []
     test_accuracy = []
-    if loss == 'MSE': loss_function = nn.MSELoss()
-    elif loss in 'CrossEntropyLoss': loss_function = nn.CrossEntropyLoss()
-    # scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
 
-    # Move initial_weights to same device
-    if self.init_weights['LHb_to_DAN.weight'].device != self.LHb_to_DAN.weight.device:
+    # Define device and loss function
+    if torch.cuda.is_available(): 
+      device = torch.device('cuda')
+      if loss == 'MSE': loss_function = nn.MSELoss().cuda()
+      elif loss in 'CrossEntropyLoss': loss_function = nn.CrossEntropyLoss().cuda()
+      # scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
+      # Move initial_weights to same device
       for key in self.init_weights.keys():
-        self.init_weights[key] = self.init_weights[key].to(self.LHb_to_DAN.weight.device)
+        self.init_weights[key] = self.init_weights[key].to(device)
+    else: 
+      device = torch.device('cpu')
+      if loss == 'MSE': loss_function = nn.MSELoss()
+      elif loss in 'CrossEntropyLoss': loss_function = nn.CrossEntropyLoss()
+      # scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
     
     # Train the network
     for epoch in range(num_epochs):
@@ -151,8 +158,8 @@ class EPLHb(nn.Module):
         training_loss.append(loss.data.cpu())
 
         loss.backward()
-        print('Weight:' + str(self.init_weights['LHb_to_DAN.weight'].device))
-        print('grad: ' + str(self.LHb_to_DAN.weight.grad.device))
+        # print('Weight:' + str(self.init_weights['LHb_to_DAN.weight'].device))
+        # print('grad: ' + str(self.LHb_to_DAN.weight.grad.device)):
         optimizer.step(init_weights=list(self.init_weights.values()))
         self.enforce_weights()
         
