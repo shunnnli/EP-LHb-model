@@ -15,10 +15,14 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 torch.set_default_device(device)
 
 # Define conditions
-LHb_network = ['MLP','RNN']
-initialization = ['random','dales_law']
-network_struct = ['real','mixed']
-update_methods = ['corelease','fixed_sign']
+# LHb_network = ['MLP','RNN']
+# initialization = ['random','dales_law']
+# network_struct = ['real','mixed']
+# update_methods = ['corelease','fixed_sign']
+LHb_network = ['RNN']
+initialization = ['dales_law']
+network_struct = ['real']
+update_methods = ['fixed_sign']
 
 # Define network basic properties
 EP_size = 784 # img_size = (28,28) ---> 28*28=784 in total
