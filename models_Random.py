@@ -7,7 +7,6 @@ import torch.nn as nn
 from EPLHb import EPLHb, gd, adam, NeuronalData
 
 import numpy as np
-from scipy import stats
 import pickle
 from datetime import date
 
@@ -15,16 +14,13 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 torch.set_default_device(device)
 
 # Define conditions
-# LHb_network = ['MLP','RNN']
-# initialization = ['random','dales_law']
-# network_struct = ['real','mixed']
-# update_methods = ['corelease','fixed_sign']
-LHb_network = ['RNN']
-initialization = ['dales_law']
-network_struct = ['real']
-update_methods = ['fixed_sign']
+LHb_network = ['MLP','RNN']
+initialization = ['random','dales_law']
+network_struct = ['real','mixed']
+update_methods = ['corelease','fixed_sign']
 
 # Define network basic properties
+n_networks = 20 # number of networks to train
 EP_size = 784 # img_size = (28,28) ---> 28*28=784 in total
 LHb_size = 500 # number of nodes at hidden layer
 DAN_size = 10 # number of output classes discrete range [0,9]
@@ -34,8 +30,6 @@ lr = 1e-2 # size of step
 prob_EP_to_LHb = 1
 prob_LHb_to_LHb = 1
 prob_LHb_to_DAN = 1
-
-n_networks = 20 # number of networks to train
 
 label_type = 'digital' # or 'digital'
 prob_input_active = 0.05 # probability that an input is active in each context
