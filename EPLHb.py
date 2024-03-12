@@ -180,36 +180,33 @@ class EPLHb(nn.Module):
 
 
 class gd(torch.optim.Optimizer): 
-    def __init__(self, params, lr=0.01, fixed_sign: bool = False): 
-        defaults = dict(lr=lr, fixed_sign=fixed_sign) 
-        super(gd, self).__init__(params, defaults) 
-  
-    def step(self, init_weights=None): 
-        for group in self.param_groups: 
-            for i, p in enumerate(group['params']): 
-                if p.grad is None: 
-                    continue
-                p.data = p.data - group['lr']*p.grad.data
+  def __init__(self, params, lr=0.01, fixed_sign: bool = False): 
+    defaults = dict(lr=lr, fixed_sign=fixed_sign) 
+    super(gd, self).__init__(params, defaults) 
 
-                if group['fixed_sign']:
-                    flip_mask = init_weights[i].sign()*p.data.sign()<0
-                    p.data[flip_mask] = 0
+  def step(self, init_weights=None): 
+    for group in self.param_groups: 
+      for i, p in enumerate(group['params']): 
+        if p.grad is None: continue
+        p.data = p.data - group['lr']*p.grad.data
 
+        if group['fixed_sign']:
+          flip_mask = init_weights[i].sign()*p.data.sign()<0
+          p.data[flip_mask] = 0
 
 
-class adam(torch.optim.Optimizer): 
+
+class adam(torch.optim.Optimizer):
 	def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0, fixed_sign: bool = False): 
 		defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, fixed_sign=fixed_sign)
 		super(adam, self).__init__(params, defaults) 
 
-	def step(self, init_weights=None): 
-		for group in self.param_groups: 
+	def step(self, init_weights=None):
+		for group in self.param_groups:
 			for i, p in enumerate(group['params']): 
-				if p.grad is None: 
-					continue
+				if p.grad is None: continue
 				grad = p.grad.data 
-				if grad.is_sparse: 
-					raise RuntimeError("Adam does not support sparse gradients") 
+				if grad.is_sparse: raise RuntimeError("Adam does not support sparse gradients") 
 
 				state = self.state[p]
 
@@ -240,23 +237,22 @@ class adam(torch.optim.Optimizer):
 
 				denom = (exp_avg_sq.sqrt() / bias_correction2_sqrt).add_(group["eps"])
 
-				p.data.addcdiv_(exp_avg, denom, value=-step_size)
+				p.data.addcdiv_(exp_avg, denom, value=-step_size)  
                 
 				if group["fixed_sign"]:
 					flip_mask = init_weights[i].sign()*p.data.sign()<0
 					p.data[flip_mask] = 0
-                    
-
+    
 
 class NeuronalData(torch.utils.data.Dataset):
-    def __init__(self, inputs, labels, device='cpu'):
-        self.inputs = inputs
-        self.labels = labels
+  def __init__(self, inputs, labels):
+    self.inputs = inputs
+    self.labels = labels
 
-    def __len__(self):
-        return len(self.inputs)
+  def __len__(self):
+    return len(self.inputs)
 
-    def __getitem__(self, idx):
-        input_data = self.inputs[idx]
-        label = self.labels[idx]
-        return input_data, label
+  def __getitem__(self, idx):
+    input_data = self.inputs[idx]
+    label = self.labels[idx]
+    return input_data, label
