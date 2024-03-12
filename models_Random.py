@@ -39,18 +39,18 @@ prob_input_active = 0.05 # probability that an input is active in each context
 prob_output_active = 0.125
 n_contexts = 5000
 prob_EP_flip = 0.05
-generator = torch.manual_seed(0,device=device)
+# generator = torch.Generator(device=device)
 
 # Generate initial random data
-rands = torch.rand(n_contexts, EP_size, device=device, generator=generator)
+rands = torch.rand(n_contexts, EP_size, device=device)
 train_data = 1.0*(rands<prob_input_active) - 1.0*(rands>(1-prob_input_active))
-rands = torch.rand(n_contexts, device=device ,generator=generator)
+rands = torch.rand(n_contexts, device=device)
 if label_type == 'analog': train_labels = 2*rands-1
 else: train_labels = 1.0*(rands<prob_output_active) - 1.0*(rands>(1-prob_output_active))
 train_labels = torch.transpose(train_labels.repeat(DAN_size, 1).squeeze(), 0, 1)
 
 # Randomly select inputs, and flip corresponding labels
-input_mask = torch.rand(EP_size,device=device,generator=generator) < prob_EP_flip
+input_mask = torch.rand(EP_size,device=device) < prob_EP_flip
 flip_EP = torch.linspace(1,EP_size,EP_size)[input_mask].to(torch.int32)
 flip_idx = train_data.nonzero()[torch.isin(train_data.nonzero()[:,1], flip_EP),0].unique()
 train_labels_flipped = train_labels.clone()
