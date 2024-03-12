@@ -148,6 +148,7 @@ class EPLHb(nn.Module):
         training_loss.append(loss.data.cpu())
 
         loss.backward()
+        print(self.init_weights.values().device)
         optimizer.step(init_weights=list(self.init_weights.values()))
         self.enforce_weights()
         
@@ -211,7 +212,7 @@ class adam(torch.optim.Optimizer):
 				if grad.is_sparse: 
 					raise RuntimeError("Adam does not support sparse gradients") 
 
-				state = self.state[p] 
+				state = self.state[p]
 
 				# State initialization 
 				if len(state) == 0: 
@@ -241,10 +242,8 @@ class adam(torch.optim.Optimizer):
 				denom = (exp_avg_sq.sqrt() / bias_correction2_sqrt).add_(group["eps"])
 
 				p.data.addcdiv_(exp_avg, denom, value=-step_size)
-				
-				if group["fixed_sign"]: 
-          print(p.data.device)
-          print(init_weights[i].device)
+                
+				if group["fixed_sign"]:
 					flip_mask = init_weights[i].sign()*p.data.sign()<0
 					p.data[flip_mask] = 0
                     

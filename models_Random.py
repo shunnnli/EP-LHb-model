@@ -37,7 +37,7 @@ label_type = 'digital' # or 'digital'
 prob_input_active = 0.05 # probability that an input is active in each context
 prob_output_active = 0.125
 n_contexts = 5000
-prob_EP_flip = 0.05
+prob_EP_flip = 0.01
 # generator = torch.Generator(device=device)
 
 # Generate initial random data
