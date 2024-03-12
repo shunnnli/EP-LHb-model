@@ -13,7 +13,7 @@ class EPLHb(nn.Module):
     # Initialize layers
     if LHb_rnn: 
       self.LHb_RNN = nn.RNN(EP_size, LHb_size, batch_first=True, bias=True)
-      self.LHb_RNN.flatten_parameters()
+      # self.LHb_RNN.flatten_parameters()
     else: 
       self.EP_to_LHb = nn.Linear(EP_size, LHb_size, bias=True)
       # nn.init.xavier_normal_(self.EP_to_LHb.weight)
