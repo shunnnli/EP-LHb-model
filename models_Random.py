@@ -66,12 +66,12 @@ print('Flipped EP neurons: ' + str(flip_EP.cpu().numpy()))
 
 # Packaged into dataset
 batch_size = 100
-train_dataset = NeuronalData(train_data,train_labels,device=device)
+train_dataset = NeuronalData(train_data,train_labels)
 train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=batch_size,
-                                            shuffle=True)
-flip_dataset = NeuronalData(train_data,train_labels_flipped,device=device)
+                                            shuffle=True, generator=torch.Generator(device=device))
+flip_dataset = NeuronalData(train_data,train_labels_flipped)
 flip_loader = torch.utils.data.DataLoader(dataset=flip_dataset, batch_size=batch_size,
-                                           shuffle=True)
+                                           shuffle=True, generator=torch.Generator(device=device))
 
 # Train different networks
 print('Training networks...')
