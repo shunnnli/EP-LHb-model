@@ -243,6 +243,8 @@ class adam(torch.optim.Optimizer):
 				p.data.addcdiv_(exp_avg, denom, value=-step_size)
 				
 				if group["fixed_sign"]: 
+          print(p.data.device)
+          print(init_weights[i].device)
 					flip_mask = init_weights[i].sign()*p.data.sign()<0
 					p.data[flip_mask] = 0
                     
