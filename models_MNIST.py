@@ -91,7 +91,7 @@ for LHb in LHb_network:
 
                     network_training_loss.append(training_loss)
                     network_test_accuracy.append(test_accuracy)
-                    print('Finished training network %d/%d' %(i,n_networks))
+                    print('Finished training network %d/%d' %(i,n_networks.cpu()))
 
                 # Convert list to numpy array
                 network_training_loss = np.array(network_training_loss)

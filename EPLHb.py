@@ -142,7 +142,7 @@ class EPLHb(nn.Module):
         elif data.ndim != 2: data = data.view(-1, self.EP_size)
         outputs = self(data)
 
-        loss = loss_function(outputs.squeeze(), labels) #maybe need to flatten outputs
+        loss = loss_function(outputs.squeeze(), labels)
         training_loss.append(loss.data.cpu())
 
         loss.backward()
@@ -247,7 +247,7 @@ class adam(torch.optim.Optimizer):
 
 
 class NeuronalData(torch.utils.data.Dataset):
-    def __init__(self, inputs, labels):
+    def __init__(self, inputs, labels, device='cpu'):
         self.inputs = inputs
         self.labels = labels
 
