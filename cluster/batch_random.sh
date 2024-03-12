@@ -7,7 +7,7 @@
 #SBATCH --gres=gpu:1             # number of allocated gpus per node
 #SBATCH --cpus-per-task=16        # cpu-cores per task (>1 if multi-threaded tasks)
 #SBATCH --mem=250G                # total memory per node (16 GB per cpu-core is default)
-#SBATCH --time=00:30:00          # total run time limit (HH:MM:SS)
+#SBATCH --time=02:00:00          # total run time limit (HH:MM:SS)
 #SBATCH -o %j.out # STDOUT
 #SBATCH -e %j.err # STDERR
 #SBATCH --mail-type END,FAIL
