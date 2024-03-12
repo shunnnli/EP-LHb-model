@@ -133,7 +133,10 @@ class EPLHb(nn.Module):
     elif loss in 'CrossEntropyLoss': loss_function = nn.CrossEntropyLoss()
     # scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
 
-    # Move DataLoader to device
+    # Move initial_weights to same device
+    if self.init_weights['LHb_to_DAN.weight'].device != self.LHb_to_DAN.weight.device:
+      for key in self.init_weights.keys():
+        self.init_weights[key] = self.init_weights[key].to(self.LHb_to_DAN.weight.device)
     
     # Train the network
     for epoch in range(num_epochs):
