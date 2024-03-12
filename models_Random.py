@@ -32,8 +32,6 @@ prob_LHb_to_DAN = 1
 
 n_networks = 20 # number of networks to train
 
-
-# Generate data
 label_type = 'digital' # or 'digital'
 prob_input_active = 0.05 # probability that an input is active in each context
 prob_output_active = 0.125
@@ -42,6 +40,7 @@ prob_EP_flip = 0.05
 # generator = torch.Generator(device=device)
 
 # Generate initial random data
+print('Generating data...')
 rands = torch.rand(n_contexts, EP_size, device=device)
 train_data = 1.0*(rands<prob_input_active) - 1.0*(rands>(1-prob_input_active))
 rands = torch.rand(n_contexts, device=device)
@@ -50,27 +49,26 @@ else: train_labels = 1.0*(rands<prob_output_active) - 1.0*(rands>(1-prob_output_
 train_labels = torch.transpose(train_labels.repeat(DAN_size, 1).squeeze(), 0, 1)
 
 # Randomly select inputs, and flip corresponding labels
+print('Flipping data...')
 input_mask = torch.rand(EP_size,device=device) < prob_EP_flip
 flip_EP = torch.linspace(1,EP_size,EP_size)[input_mask].to(torch.int32)
 flip_idx = train_data.nonzero()[torch.isin(train_data.nonzero()[:,1], flip_EP),0].unique()
 train_labels_flipped = train_labels.clone()
 train_labels_flipped[flip_idx] *= -1
-
 n_flip = flip_idx.shape[0]
 print('Flipped percentage: %.3f%%, %d/%d' % (100*n_flip/n_contexts, n_flip, n_contexts))
 print('Flipped EP neurons: ' + str(flip_EP.numpy()))
 
 # Packaged into dataset
 batch_size = 100
-
 train_dataset = NeuronalData(train_data,train_labels)
 train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
-
 flip_dataset = NeuronalData(train_data,train_labels_flipped)
 flip_loader = torch.utils.data.DataLoader(dataset=flip_dataset, batch_size=batch_size, shuffle=True)
 
 
 # Train different networks
+print('Training networks...')
 training_loss_summary, relearn_loss_summary = {}, {}
 
 for LHb in LHb_network:
