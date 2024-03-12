@@ -39,7 +39,7 @@ prob_input_active = 0.05 # probability that an input is active in each context
 prob_output_active = 0.125
 n_contexts = 5000
 prob_EP_flip = 0.05
-generator = torch.manual_seed(0)
+generator = torch.manual_seed(0,device=device)
 
 # Generate initial random data
 rands = torch.rand(n_contexts, EP_size, device=device, generator=generator)
