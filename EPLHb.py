@@ -136,6 +136,9 @@ class EPLHb(nn.Module):
     # Train the network
     for epoch in range(num_epochs):
       for i, (data,labels) in enumerate(train_loader):
+        # Move data to gpu if available
+        if torch.cuda.is_available(): data, labels = data.cuda(), labels.cuda()
+
         optimizer.zero_grad()
 
         if self.LHb_rnn: data = data.view(-1,1, self.EP_size)
