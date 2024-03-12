@@ -148,7 +148,6 @@ class EPLHb(nn.Module):
         training_loss.append(loss.data.cpu())
 
         loss.backward()
-        print(self.init_weights['LHb_to_DAN.weight'].device)
         optimizer.step(init_weights=list(self.init_weights.values()))
         self.enforce_weights()
         
@@ -215,7 +214,7 @@ class adam(torch.optim.Optimizer):
 				state = self.state[p]
 
 				# State initialization 
-				if len(state) == 0: 
+				if len(state) == 0:
 					state["step"] = 0
 					# Momentum: Exponential moving average of gradient values 
 					state["exp_avg"] = torch.zeros_like(p.data) 
@@ -244,7 +243,7 @@ class adam(torch.optim.Optimizer):
 				p.data.addcdiv_(exp_avg, denom, value=-step_size)
                 
 				if group["fixed_sign"]:
-          flip_mask = init_weights[i].sign()*p.data.sign()<0
+					flip_mask = init_weights[i].sign()*p.data.sign()<0
 					p.data[flip_mask] = 0
                     
 
