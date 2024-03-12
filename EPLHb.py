@@ -148,7 +148,8 @@ class EPLHb(nn.Module):
         training_loss.append(loss.data.cpu())
 
         loss.backward()
-        print(self.init_weights['LHb_to_DAN.weight'].device)
+        print('Weight:' + str(self.init_weights['LHb_to_DAN.weight'].device))
+        print('grad: ' + str(self.LHb_to_DAN.weight.grad.device))
         optimizer.step(init_weights=list(self.init_weights.values()))
         self.enforce_weights()
         
