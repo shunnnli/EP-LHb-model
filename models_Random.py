@@ -133,7 +133,7 @@ for LHb in LHb_network:
 
 # Save as pickle file
 today = date.today()
-filename = '~/code/EP-LHb-model/results/Random/model_comparison_'+today.strftime("%Y%m%d")+'.pkl'
+filename = '/n/home04/shunnnli/code/EP-LHb-model/results/Random/model_comparison_'+today.strftime("%Y%m%d")+'.pkl'
 print('Saving to',filename)
 
 with open(filename, 'wb') as f:
