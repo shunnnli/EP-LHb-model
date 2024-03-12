@@ -148,7 +148,7 @@ class EPLHb(nn.Module):
         training_loss.append(loss.data.cpu())
 
         loss.backward()
-        print(self.init_weights[1].device)
+        print(self.init_weights['LHb_to_DAN.weight'].device)
         optimizer.step(init_weights=list(self.init_weights.values()))
         self.enforce_weights()
         
@@ -244,7 +244,7 @@ class adam(torch.optim.Optimizer):
 				p.data.addcdiv_(exp_avg, denom, value=-step_size)
                 
 				if group["fixed_sign"]:
-					flip_mask = init_weights[i].sign()*p.data.sign()<0
+          flip_mask = init_weights[i].sign()*p.data.sign()<0
 					p.data[flip_mask] = 0
                     
 
