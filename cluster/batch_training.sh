@@ -11,12 +11,12 @@
 #SBATCH -o %j.out # STDOUT
 #SBATCH -e %j.err # STDERR
 #SBATCH --mail-type END,FAIL
-#SBATCH --mail-user shun.li@g.harvard.edu
+#SBATCH --mail-user shunli@g.harvard.edu
 
 module load python/3.10.12-fasrc01
 python -c 'print("Python 3.10.12 loaded...")'
 mamba activate eplhbmodel
 python -c 'print("Conda environment activated...")'
 
-python -c 'print("Batch experiments started...")'
+python -c 'print("************ Batch experiments ************")'
 srun python ~/code/EP-LHb-model/models_Random.py
