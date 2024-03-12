@@ -58,7 +58,7 @@ train_labels_flipped = train_labels.clone()
 train_labels_flipped[flip_idx] *= -1
 n_flip = flip_idx.shape[0]
 print('Flipped percentage: %.3f%%, %d/%d' % (100*n_flip/n_contexts, n_flip, n_contexts))
-print('Flipped EP neurons: ' + str(flip_EP.numpy()))
+print('Flipped EP neurons: ' + str(flip_EP.cpu().numpy()))
 
 # Packaged into dataset
 batch_size = 100
@@ -109,12 +109,12 @@ for LHb in LHb_network:
 
                     # Train on flipped data
                     optimizer = adam(net.parameters(), lr=lr, fixed_sign=fixed_sign_update)
-                    relearn_loss, _ = net.train_model(num_relearn_epochs,flip_loader,optimizer,
+                    relearn_loss, _ = net.train_model(num_epochs,flip_loader,optimizer,
                                                     print_epoch=False,loss='MSE')
 
                     network_training_loss.append(training_loss)
                     network_relearn_loss.append(relearn_loss)
-                    print('Finished training network %d/%d' %(i,n_networks))
+                    print('Finished training network %d/%d' %(i,n_networks.cpu()))
 
                 # Convert list to numpy array
                 network_training_loss = np.array(network_training_loss)
