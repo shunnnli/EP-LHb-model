@@ -10,7 +10,7 @@
 #SBATCH --time=2-02:00:00          # total run time limit (HH:MM:SS)
 #SBATCH -o %j.out # STDOUT
 #SBATCH -e %j.err # STDERR
-#SBATCH --mail-type START, END, FAIL
+#SBATCH --mail-type BEGIN,END,FAIL
 #SBATCH --mail-user shunli@g.harvard.edu
 
 module load python/3.10.12-fasrc01
