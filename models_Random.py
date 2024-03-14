@@ -2,8 +2,6 @@
 # Shun Li, 03/08/24
 
 import torch
-import torch.nn as nn
-
 from EPLHb import EPLHb, gd, adam, NeuronalData
 
 import numpy as np
@@ -127,7 +125,7 @@ for LHb in LHb_network:
 
 # Save as pickle file
 today = date.today()
-filename = '/n/home04/shunnnli/code/EP-LHb-model/results/Random/model_comparison_'+today.strftime("%Y%m%d")+'.pkl'
+filename = '/n/holylabs/LABS/bsabatini_lab/Users/shunnnli/EP-LHb-model/results/Random/model_comparison_'+today.strftime("%Y%m%d")+'.pkl'
 print('Saving to',filename)
 
 with open(filename, 'wb') as f:

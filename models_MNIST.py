@@ -2,19 +2,16 @@
 # Shun Li, 03/08/24
 
 import torch
-import torch.nn as nn
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
-
 from EPLHb import EPLHb, gd, adam
 
 import numpy as np
-from scipy import stats
 import pickle
 from datetime import date
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
+torch.set_default_device(device)
 
 # Downloading MNIST data
 train_data = datasets.MNIST(root = './data', train = True,
@@ -42,7 +39,7 @@ EP_size = 784 # img_size = (28,28) ---> 28*28=784 in total
 LHb_size = 500 # number of nodes at hidden layer
 DAN_size = 10 # number of output classes discrete range [0,9]
 num_epochs = 10 # number of times which the entire dataset is passed throughout the model
-lr = 1e-3 # size of step
+lr = 1e-2 # size of step
 
 prob_EP_to_LHb = 1
 prob_LHb_to_LHb = 1
@@ -107,7 +104,7 @@ for LHb in LHb_network:
 
 # Save as pickle file
 today = date.today()
-filename = '~/code/EP-LHb-model/results/MNIST/model_comparison_'+today.strftime("%Y%m%d")+'.pkl'
+filename = '/n/holylabs/LABS/bsabatini_lab/Users/shunnnli/EP-LHb-model/results/MNIST/model_comparison_'+today.strftime("%Y%m%d")+'.pkl'
 print('Saving to',filename)
 
 with open(filename, 'wb') as f:

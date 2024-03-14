@@ -18,5 +18,10 @@ python -c 'print("Python 3.10.12 loaded...")'
 mamba activate eplhbmodel
 python -c 'print("Environment activated...")'
 
+# Make directory of today's date
+today=$(date +%Y-%m-%d)
+mkdir -p /n/holylabs/LABS/bsabatini_lab/Users/shunnnli/EP-LHb-model/results/Random/$today
+python -c 'print("Created experiment directory at lab folder: EP-LHb-model/results/Random/'$today'")'
+
 python -c 'print("************ Batch experiments ************")'
-srun python ~/code/EP-LHb-model/models_Random.py
+# srun python ~/code/EP-LHb-model/models_Random.py
