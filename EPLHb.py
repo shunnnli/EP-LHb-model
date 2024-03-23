@@ -6,7 +6,7 @@ import math
 class EPLHb(nn.Module):
   def __init__(self, EP_size, LHb_size, DAN_size, 
                LHb_rnn: bool=False,
-               fixed_sign: bool=False, real_circuit: bool=True, 
+               EP_LHb: str="corelease", LHb_DAN: str="real", 
                prob_EP_to_LHb: float=1, prob_LHb_to_LHb: float=1, prob_LHb_to_DAN: float=1):
     super(EPLHb,self).__init__()
     
@@ -17,45 +17,65 @@ class EPLHb(nn.Module):
     else: 
       self.EP_to_LHb = nn.Linear(EP_size, LHb_size, bias=True)
       # nn.init.xavier_normal_(self.EP_to_LHb.weight)
-
     self.LHb_to_DAN = nn.Linear(LHb_size, DAN_size, bias=True)
     # nn.init.xavier_normal_(self.LHb_to_DAN.weight)
    
+
     with torch.no_grad():
+      # Make LHb to DAN sparse
+      n_zeros = int((1-prob_LHb_to_DAN) * self.LHb_to_DAN.weight.numel())
+      sparse_idx_LHb = torch.randperm(self.LHb_to_DAN.weight.numel())[:n_zeros]
+      self.LHb_to_DAN.weight.data.view(-1)[sparse_idx_LHb] = 0
       if LHb_rnn:
         # Make EP to LHb sparse
         n_zeros = int((1-prob_EP_to_LHb) * self.LHb_RNN.weight_ih_l0.numel())
         sparse_idx_EP = torch.randperm(self.LHb_RNN.weight_ih_l0.numel())[:n_zeros]
         self.LHb_RNN.weight_ih_l0.data.view(-1)[sparse_idx_EP] = 0
+        # Make LHb to LHb sparse
+        n_zeros = int((1-prob_LHb_to_LHb) * self.LHb_RNN.weight_hh_l0.numel())
+        sparse_idx_LHb_RNN = torch.randperm(self.LHb_RNN.weight_hh_l0.numel())[:n_zeros]
+        self.LHb_RNN.weight_hh_l0.data.view(-1)[sparse_idx_LHb_RNN] = 0
       else:
         # Make EP to LHb sparse
         n_zeros = int((1-prob_EP_to_LHb) * self.EP_to_LHb.weight.numel())
         sparse_idx_EP = torch.randperm(self.EP_to_LHb.weight.numel())[:n_zeros]
         self.EP_to_LHb.weight.data.view(-1)[sparse_idx_EP] = 0
 
-      # Make LHb to DAN sparse
-      n_zeros = int((1-prob_LHb_to_DAN) * self.LHb_to_DAN.weight.numel())
-      sparse_idx_LHb = torch.randperm(self.LHb_to_DAN.weight.numel())[:n_zeros]
-      self.LHb_to_DAN.weight.data.view(-1)[sparse_idx_LHb] = 0
-      
-      if real_circuit: 
+
+      # Configure init properties for each layer
+      EP_LHb_pos_neurons, EP_LHb_neg_neurons = {},{}
+      LHb_DAN_pos_neurons, LHb_DAN_neg_neurons = {},{}
+      if EP_LHb == "dales_law":
+        for name, param in self.named_parameters():
+          if not LHb_rnn and "EP_to_LHb" in name and "weight" in name:
+            # Find each neuron is excitatory or inhibitory
+            EP_LHb_pos_neurons[name] = torch.sum(param.data, axis=0) >= 0
+            EP_LHb_neg_neurons[name] = torch.sum(param.data, axis=0) < 0
+            # Make all weights of that neuron excitatory or inhibitory
+            param.data[:,EP_LHb_pos_neurons[name]] = torch.sign(param[:,EP_LHb_pos_neurons[name]])*param[:,EP_LHb_pos_neurons[name]]
+            param.data[:,EP_LHb_neg_neurons[name]] = -torch.sign(param[:,EP_LHb_neg_neurons[name]])*param[:,EP_LHb_neg_neurons[name]]
+          elif LHb_rnn and "LHb_RNN" in name and "weight_ih_l0" in name:
+            # Find each neuron is excitatory or inhibitory
+            EP_LHb_pos_neurons[name] = torch.sum(param.data, axis=0) >= 0
+            EP_LHb_neg_neurons[name] = torch.sum(param.data, axis=0) < 0
+            # Make all weights of that neuron excitatory or inhibitory
+            param.data[:,EP_LHb_pos_neurons[name]] = torch.sign(param[:,EP_LHb_pos_neurons[name]])*param[:,EP_LHb_pos_neurons[name]]
+            param.data[:,EP_LHb_neg_neurons[name]] = -torch.sign(param[:,EP_LHb_neg_neurons[name]])*param[:,EP_LHb_neg_neurons[name]]
+
+      if LHb_DAN == "dales_law":
+         for name, param in self.named_parameters():
+          if ("LHb_to_DAN" in name and "weight" in name) or ("LHb_RNN" in name and "weight_hh_l0" in name):
+            # Find each neuron is excitatory or inhibitory
+            LHb_DAN_pos_neurons[name] = torch.sum(param.data, axis=0) >= 0
+            LHb_DAN_neg_neurons[name] = torch.sum(param.data, axis=0) < 0
+            # Make all weights of that neuron excitatory or inhibitory
+            param.data[:,LHb_DAN_pos_neurons[name]] = torch.sign(param[:,LHb_DAN_pos_neurons[name]])*param[:,LHb_DAN_pos_neurons[name]]
+            param.data[:,LHb_DAN_neg_neurons[name]] = -torch.sign(param[:,LHb_DAN_neg_neurons[name]])*param[:,LHb_DAN_neg_neurons[name]]
+      elif LHb_DAN == "real": 
         # Make LHb to LHb all excitatory
         if LHb_rnn: self.LHb_RNN.weight_hh_l0.data = torch.abs(self.LHb_RNN.weight_hh_l0.data)
         # Make LHb to DAN all negative
         self.LHb_to_DAN.weight.data = -torch.abs(self.LHb_to_DAN.weight)
-      
-      # Turn into fixed sign (obey Dale's law)
-      pos_neurons = {}
-      neg_neurons = {}
-      if fixed_sign:
-        for name, param in self.named_parameters():
-          if "weight" in name:
-            # Find each neuron is excitatory or inhibitory
-            pos_neurons[name] = torch.sum(param.data, axis=0) >= 0
-            neg_neurons[name] = torch.sum(param.data, axis=0) < 0
-            # Make all weights of that neuron excitatory or inhibitory
-            param.data[:,pos_neurons[name]] = torch.sign(param[:,pos_neurons[name]])*param[:,pos_neurons[name]]
-            param.data[:,neg_neurons[name]] = -torch.sign(param[:,neg_neurons[name]])*param[:,neg_neurons[name]]
     
     self.relu = nn.ReLU()
     # self.tanh = nn.Tanh()
@@ -66,12 +86,12 @@ class EPLHb(nn.Module):
     self.LHb_size = LHb_size
     self.DAN_size = DAN_size
     self.LHb_rnn = LHb_rnn
-    self.real_circuit = real_circuit
-    self.fixed_sign = fixed_sign
+    self.LHb_DAN = LHb_DAN
+    self.EP_LHb = EP_LHb
     self.sparse_idx_EP = sparse_idx_EP
     self.sparse_idx_LHb = sparse_idx_LHb
-    self.pos_neurons = pos_neurons
-    self.neg_neurons = neg_neurons
+    self.EP_LHb_pos_neurons = EP_LHb_pos_neurons
+    self.EP_LHb_neg_neurons = EP_LHb_neg_neurons
     self.init_weights = self.record_params(calc_sign=False)
 
   def enforce_weights(self):
@@ -83,7 +103,7 @@ class EPLHb(nn.Module):
       # Keep LHb to DAN sparse
       self.LHb_to_DAN.weight.data.view(-1)[self.sparse_idx_LHb] = 0
       
-      if self.real_circuit:
+      if self.LHb_DAN == "real":
         # Make LHb to LHb all excitatory
         if self.LHb_rnn: self.LHb_RNN.weight_hh_l0.data = torch.max(self.LHb_RNN.weight_hh_l0.data, 0*self.LHb_RNN.weight_hh_l0.data)
         # Make LHb to DAN all negative

@@ -30,8 +30,8 @@ test_loader = torch.utils.data.DataLoader(dataset = test_data,batch_size = batch
 
 # Define conditions
 LHb_network = ['MLP','RNN']
-initialization = ['random','dales_law']
-network_struct = ['real','mixed']
+EP_LHb = ['random','dales_law']
+LHb_DAN = ['real','mixed','dales_law']
 update_methods = ['corelease','fixed_sign']
 
 # Define network basic properties
@@ -52,10 +52,10 @@ n_networks = 20 # number of networks to train
 training_loss_summary, test_accuracy_summary = {}, {}
 
 for LHb in LHb_network:
-    for init in initialization:
-        for struct in network_struct:
+    for init in EP_LHb:
+        for struct in LHb_DAN:
             for method in update_methods:
-                print('LHb: ',LHb, '; Initialization:',init,'; Network:',struct,'; Method:',method)
+                print('LHb: ',LHb, '; EP_LHb:',init,'; LHb_DAN:',struct,'; Method:',method)
                 
                 # Initialize network-specific loss and accuracy summary
                 network_training_loss, network_test_accuracy = [], []
@@ -63,10 +63,6 @@ for LHb in LHb_network:
                 # Initialize network params
                 if LHb == 'MLP': rnn = False
                 else: rnn = True
-                if init == 'random': fixed_sign_init = False
-                else: fixed_sign_init = True
-                if struct == 'real': real_circuit = True
-                else: real_circuit = False
                 if method == 'corelease': fixed_sign_update = False
                 else: fixed_sign_update = True
 
@@ -74,7 +70,7 @@ for LHb in LHb_network:
                 for i in range(1,n_networks+1):
                     # Initialize a network
                     net = EPLHb(EP_size,LHb_size,DAN_size,
-                                LHb_rnn=rnn,fixed_sign=fixed_sign_init,real_circuit=real_circuit,
+                                LHb_rnn=rnn,EP_LHb=init,LHb_DAN=struct,
                                 prob_EP_to_LHb=prob_EP_to_LHb,prob_LHb_to_LHb=prob_LHb_to_LHb,prob_LHb_to_DAN=prob_LHb_to_DAN)
                     initial_params = net.record_params(calc_sign=False)
                     training_loss, test_accuracy = [], []
