@@ -73,7 +73,7 @@ for LHb in LHb_network:
     for init in EP_LHb:
         for struct in LHb_DAN:
             for method in update_methods:
-                print('LHb: ',LHb, '; EP-LHb:',init,'; LHb-DAN:',struct,'; Method:',method)
+                print('LHb: ',LHb, '; EP_LHb:',init,'; LHb_DAN:',struct,'; Method:',method)
                 
                 # Initialize network-specific loss and accuracy summary
                 network_training_loss, network_relearn_loss = [], []
