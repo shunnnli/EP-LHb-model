@@ -29,7 +29,7 @@ test_loader = torch.utils.data.DataLoader(dataset = test_data,batch_size = batch
 
 
 # Define conditions
-LHb_network = ['MLP','RNN']
+LHb_network = [0, 0.2, 0.4, 0.6, 0.8, 1]
 EP_LHb = ['random','dales-law']
 LHb_DAN = ['real','mixed','dales-law']
 update_methods = ['corelease','fixed-sign']
@@ -42,7 +42,6 @@ num_epochs = 10 # number of times which the entire dataset is passed throughout 
 lr = 1e-2 # size of step
 
 prob_EP_to_LHb = 1
-prob_LHb_to_LHb = 1
 prob_LHb_to_DAN = 1
 
 n_networks = 20 # number of networks to train
@@ -61,8 +60,7 @@ for LHb in LHb_network:
                 network_training_loss, network_test_accuracy = [], []
 
                 # Initialize network params
-                if LHb == 'MLP': rnn = False
-                else: rnn = True
+                if LHb == 0: rnn = False
                 if method == 'corelease': fixed_sign_update = False
                 else: fixed_sign_update = True
 
@@ -71,7 +69,7 @@ for LHb in LHb_network:
                     # Initialize a network
                     net = EPLHb(EP_size,LHb_size,DAN_size,
                                 LHb_rnn=rnn,EP_LHb=eplhb,LHb_DAN=lhbdan,
-                                prob_EP_to_LHb=prob_EP_to_LHb,prob_LHb_to_LHb=prob_LHb_to_LHb,prob_LHb_to_DAN=prob_LHb_to_DAN)
+                                prob_EP_to_LHb=prob_EP_to_LHb,prob_LHb_to_LHb=LHb,prob_LHb_to_DAN=prob_LHb_to_DAN)
                     initial_params = net.record_params(calc_sign=False)
                     training_loss, test_accuracy = [], []
                     if torch.cuda.is_available(): net.cuda()
@@ -93,7 +91,7 @@ for LHb in LHb_network:
                 network_test_accuracy = np.array(network_test_accuracy)
 
                 # Store name and stats of network to summary
-                network_name = LHb+'_'+eplhb+'_'+lhbdan+'_'+method
+                network_name = 'RNN'+str(LHb)+'_'+eplhb+'_'+lhbdan+'_'+method
                 training_loss_summary[network_name] = network_training_loss
                 test_accuracy_summary[network_name] = network_test_accuracy
 
