@@ -25,6 +25,7 @@ python -c 'print("Created experiment directory at lab folder: EP-LHb-model/resul
 
 python -c 'print("************ Batch experiments ************")'
 # srun python ~/code/EP-LHb-model/models_MNIST.py
+srun python ~/code/EP-LHb-model/rnn_sparsity_mnist.py
 python -c 'print("************ Batch experiments ************")'
 
 # Move job outputs to experiment directory
