@@ -47,15 +47,14 @@ prob_LHb_to_DAN = 1
 n_networks = 20 # number of networks to train
 
 prob_EP_to_LHb = 1
-prob_LHb_to_LHb = 1
+# prob_LHb_to_LHb = 1
 prob_LHb_to_DAN = 1
 
-label_type = 'digital' # or 'digital'
+label_type = 'analog' # or 'digital'
 prob_input_active = 0.05 # probability that an input is active in each context
 prob_output_active = 0.125
 n_contexts = 5000
 prob_EP_flip = 0.01
-# generator = torch.Generator(device=device)
 
 # Generate initial random data
 print('Generating data...')
