@@ -64,6 +64,8 @@ rands = torch.rand(n_contexts, device=device)
 if label_type == 'analog': train_labels = 2*rands-1
 else: train_labels = 1.0*(rands<prob_output_active) - 1.0*(rands>(1-prob_output_active))
 train_labels = torch.transpose(train_labels.repeat(DAN_size, 1).squeeze(), 0, 1)
+print('train_data device:',train_data.device)
+print('train_labels device:',train_labels.device)
 
 # Randomly select inputs, and flip corresponding labels
 print('Flipping data...')
