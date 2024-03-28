@@ -13,8 +13,8 @@ torch.set_default_device(device)
 
 # Define conditions
 LHb_network = ['MLP','RNN']
-EP_LHb = ['random','dales_law']
-LHb_DAN = ['real','mixed','dales_law']
+EP_LHb = ['random','dales-law']
+LHb_DAN = ['real','mixed','dales-law']
 update_methods = ['corelease','fixed_sign']
 
 # Define network basic properties
@@ -70,10 +70,10 @@ print('Training networks...')
 training_loss_summary, relearn_loss_summary = {}, {}
 
 for LHb in LHb_network:
-    for init in EP_LHb:
-        for struct in LHb_DAN:
+    for eplhb in EP_LHb:
+        for lhbdan in LHb_DAN:
             for method in update_methods:
-                print('LHb: ',LHb, '; EP_LHb:',init,'; LHb_DAN:',struct,'; Method:',method)
+                print('LHb: ',LHb, '; EP_LHb:',eplhb,'; LHb_DAN:',lhbdan,'; Method:',method)
                 
                 # Initialize network-specific loss and accuracy summary
                 network_training_loss, network_relearn_loss = [], []
@@ -88,7 +88,7 @@ for LHb in LHb_network:
                 for i in range(1,n_networks+1):
                     # Initialize a network
                     net = EPLHb(EP_size,LHb_size,DAN_size,
-                                LHb_rnn=rnn,EP_LHb=init,LHb_DAN=struct,
+                                LHb_rnn=rnn,EP_LHb=eplhb,LHb_DAN=lhbdan,
                                 prob_EP_to_LHb=prob_EP_to_LHb,prob_LHb_to_LHb=prob_LHb_to_LHb,prob_LHb_to_DAN=prob_LHb_to_DAN)
                     if torch.cuda.is_available(): net.cuda()
 
@@ -114,7 +114,7 @@ for LHb in LHb_network:
                 network_relearn_loss = np.array(network_relearn_loss)
 
                 # Store name and stats of network to summary
-                network_name = LHb+'_'+init+'_'+struct+'_'+method
+                network_name = LHb+'_'+eplhb+'_'+lhbdan+'_'+method
                 training_loss_summary[network_name] = network_training_loss
                 relearn_loss_summary[network_name] = network_relearn_loss
 
