@@ -114,7 +114,7 @@ for LHb in LHb_network:
                 network_relearn_loss = np.array(network_relearn_loss)
 
                 # Store name and stats of network to summary
-                network_name = LHb+'_'+eplhb+'_'+lhbdan+'_'+method
+                network_name = 'RNN'+str(LHb)+'_'+eplhb+'_'+lhbdan+'_'+method
                 training_loss_summary[network_name] = network_training_loss
                 relearn_loss_summary[network_name] = network_relearn_loss
 
