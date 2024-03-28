@@ -45,7 +45,7 @@ class EPLHb(nn.Module):
       # Configure init properties for each layer
       EP_LHb_pos_neurons, EP_LHb_neg_neurons = {},{}
       LHb_DAN_pos_neurons, LHb_DAN_neg_neurons = {},{}
-      if EP_LHb == "dales_law":
+      if "dales" in EP_LHb:
         for name, param in self.named_parameters():
           if not LHb_rnn and "EP_to_LHb" in name and "weight" in name:
             # Find each neuron is excitatory or inhibitory
@@ -62,7 +62,7 @@ class EPLHb(nn.Module):
             param.data[:,EP_LHb_pos_neurons[name]] = torch.sign(param[:,EP_LHb_pos_neurons[name]])*param[:,EP_LHb_pos_neurons[name]]
             param.data[:,EP_LHb_neg_neurons[name]] = -torch.sign(param[:,EP_LHb_neg_neurons[name]])*param[:,EP_LHb_neg_neurons[name]]
 
-      if LHb_DAN == "dales_law":
+      if "dales" in EP_LHb:
          for name, param in self.named_parameters():
           if ("LHb_to_DAN" in name and "weight" in name) or ("LHb_RNN" in name and "weight_hh_l0" in name):
             # Find each neuron is excitatory or inhibitory
