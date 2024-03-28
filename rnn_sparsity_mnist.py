@@ -61,6 +61,7 @@ for LHb in LHb_network:
 
                 # Initialize network params
                 if LHb == 0: rnn = False
+                else: rnn = True
                 if method == 'corelease': fixed_sign_update = False
                 else: fixed_sign_update = True
 
