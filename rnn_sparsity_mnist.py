@@ -42,7 +42,7 @@ lr = 1e-2 # size of step
 prob_EP_to_LHb = 1
 prob_LHb_to_DAN = 1
 
-n_networks = 1 # number of networks to train
+n_networks = 20 # number of networks to train
 
 # Train different networks
 training_loss_summary, test_accuracy_summary = {}, {}
