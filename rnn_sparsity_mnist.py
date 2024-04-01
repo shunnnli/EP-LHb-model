@@ -19,28 +19,12 @@ train_data = datasets.MNIST(root = '/n/home04/shunnnli/code/EP-LHb-model/data', 
 test_data = datasets.MNIST(root = '/n/home04/shunnnli/code/EP-LHb-model/data', train = False,
                        transform = transforms.ToTensor())
 
-print("train_data device:", train_data.data.device)
-print("test_data device:", test_data.data.device)
-
 # Loading the data
 batch_size = 100 # the size of input data took for one iteration
 train_loader = torch.utils.data.DataLoader(dataset=train_data, batch_size=batch_size, generator=torch.Generator(device=device),
                                            shuffle=True)
 test_loader = torch.utils.data.DataLoader(dataset=test_data, batch_size=batch_size, generator=torch.Generator(device=device),
                                           shuffle=False)
-
-# print("train_loader device:", train_loader.dataset.data.device)
-# print("test_loader device:", test_loader.dataset.data.device)
-
-# train_loader = torch.utils.data.DataLoader(dataset=train_data, batch_size=batch_size, generator=torch.Generator(device=device),
-#                                            shuffle=True, pin_memory=True, pin_memory_device=device)
-# test_loader = torch.utils.data.DataLoader(dataset=test_data, batch_size=batch_size, generator=torch.Generator(device=device),
-#                                           shuffle=True, pin_memory=True, pin_memory_device=device)
-
-# print("train_loader device:", train_loader.dataset.data.device)
-# print("test_loader device:", test_loader.dataset.data.device)
-# print("train_loader pin:", train_loader.pin_memory_device)
-# print("test_loader pin:", test_loader.pin_memory_device)
 
 # Define conditions
 LHb_network = [0, 0.2, 0.4, 0.6, 0.8, 1]
@@ -58,7 +42,7 @@ lr = 1e-2 # size of step
 prob_EP_to_LHb = 1
 prob_LHb_to_DAN = 1
 
-n_networks = 20 # number of networks to train
+n_networks = 1 # number of networks to train
 
 # Train different networks
 training_loss_summary, test_accuracy_summary = {}, {}
@@ -71,6 +55,7 @@ for LHb in LHb_network:
                 
                 # Initialize network-specific loss and accuracy summary
                 network_training_loss, network_test_accuracy = [], []
+                print('network_training_loss device:',network_training_loss.device)
 
                 # Initialize network params
                 if LHb == 0: rnn = False
@@ -99,8 +84,9 @@ for LHb in LHb_network:
                     print('Finished training network %d/%d' %(i,n_networks))
 
                 # Convert list to numpy array
-                network_training_loss = np.array(network_training_loss)
-                network_test_accuracy = np.array(network_test_accuracy)
+                print('network_training_loss device:',network_training_loss.device)
+                network_training_loss = np.array(network_training_loss.cpu())
+                network_test_accuracy = np.array(network_test_accuracy.cpu())
 
                 # Store name and stats of network to summary
                 network_name = 'RNN'+str(LHb)+'_'+eplhb+'_'+lhbdan+'_'+method
