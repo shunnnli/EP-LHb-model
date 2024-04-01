@@ -29,7 +29,7 @@ test_loader = torch.utils.data.DataLoader(dataset=test_data, batch_size=batch_si
 print("train_data device: ", train_data.data.device)
 print("test_data device: ", test_data.data.device)
 
-priht("train_loader device: ", train_loader.pin_memory_device)
+print("train_loader device: ", train_loader.pin_memory_device)
 print("test_loader device: ", test_loader.pin_memory_device) 
 
 # Define conditions
