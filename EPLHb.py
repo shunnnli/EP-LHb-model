@@ -202,7 +202,6 @@ class EPLHb(nn.Module):
               correct += (predicted == test_labels).sum()
 
             accuracy = 100 * correct / total
-            print('Accuracy device:', accuracy.is_cuda)
             test_accuracy.append(accuracy.cpu())
             if print_epoch:
               print('Epoch [%d/%d], Iteration: %d, Loss: %.4f, Accuracy: %.4f' %(epoch+1, num_epochs, i, loss.data, accuracy))
