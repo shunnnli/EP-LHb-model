@@ -55,7 +55,6 @@ for LHb in LHb_network:
                 
                 # Initialize network-specific loss and accuracy summary
                 network_training_loss, network_test_accuracy = [], []
-                print('network_training_loss device:',network_training_loss.device)
 
                 # Initialize network params
                 if LHb == 0: rnn = False
@@ -84,7 +83,6 @@ for LHb in LHb_network:
                     print('Finished training network %d/%d' %(i,n_networks))
 
                 # Convert list to numpy array
-                print('network_training_loss device:',network_training_loss.device)
                 network_training_loss = np.array(network_training_loss.cpu())
                 network_test_accuracy = np.array(network_test_accuracy.cpu())
 
