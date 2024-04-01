@@ -27,6 +27,9 @@ train_loader = torch.utils.data.DataLoader(dataset = train_data,batch_size = bat
 test_loader = torch.utils.data.DataLoader(dataset = test_data,batch_size = batch_size,
                                           shuffle = False, generator=torch.Generator(device=device))
 
+print('train_loader device:',train_loader.device)
+print('test_loader device:',test_loader.device)
+
 
 # Define conditions
 LHb_network = [0, 0.2, 0.4, 0.6, 0.8, 1]
@@ -45,7 +48,6 @@ prob_EP_to_LHb = 1
 prob_LHb_to_DAN = 1
 
 n_networks = 20 # number of networks to train
-
 
 # Train different networks
 training_loss_summary, test_accuracy_summary = {}, {}
