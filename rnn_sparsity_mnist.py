@@ -18,6 +18,8 @@ train_data = datasets.MNIST(root = './data', train = True,
                         transform = transforms.ToTensor(), download = True)
 test_data = datasets.MNIST(root = './data', train = False,
                        transform = transforms.ToTensor())
+train_data.to(device)
+test_data.to(device)
 
 # Loading the data
 batch_size = 100 # the size of input data took for one iteration
