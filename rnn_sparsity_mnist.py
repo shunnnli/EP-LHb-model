@@ -14,9 +14,9 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 torch.set_default_device(device)
 
 # Downloading MNIST data
-train_data = datasets.MNIST(root = './data', train = True,
+train_data = datasets.MNIST(root = '/n/home04/shunnnli/code/EP-LHb-model/data', train = True,
                         transform = transforms.ToTensor(), download = True)
-test_data = datasets.MNIST(root = './data', train = False,
+test_data = datasets.MNIST(root = '/n/home04/shunnnli/code/EP-LHb-model/data', train = False,
                        transform = transforms.ToTensor())
 
 # Loading the data
