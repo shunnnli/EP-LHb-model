@@ -18,8 +18,10 @@ train_data = datasets.MNIST(root = './data', train = True,
                         transform = transforms.ToTensor(), download = True)
 test_data = datasets.MNIST(root = './data', train = False,
                        transform = transforms.ToTensor())
-train_data.to(device)
-test_data.to(device)
+
+# Move data tensors to GPU
+train_data = [(data.to(device), target.to(device)) for data, target in train_data]
+test_data = [(data.to(device), target.to(device)) for data, target in test_data]
 
 # Loading the data
 batch_size = 100 # the size of input data took for one iteration
