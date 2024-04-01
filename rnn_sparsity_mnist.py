@@ -16,15 +16,16 @@ torch.set_default_device(device)
 # Downloading MNIST data
 train_data = datasets.MNIST(root = './data', train = True,
                         transform = transforms.ToTensor(), download = True)
-
 test_data = datasets.MNIST(root = './data', train = False,
                        transform = transforms.ToTensor())
+train_data.to(device)
+test_data.to(device)
 
 # Loading the data
 batch_size = 100 # the size of input data took for one iteration
-train_loader = torch.utils.data.DataLoader(dataset = train_data,batch_size = batch_size,
+train_loader = torch.utils.data.DataLoader(dataset = train_data, batch_size = batch_size,
                                            shuffle = True, generator=torch.Generator(device=device))
-test_loader = torch.utils.data.DataLoader(dataset = test_data,batch_size = batch_size,
+test_loader = torch.utils.data.DataLoader(dataset = test_data, batch_size = batch_size,
                                           shuffle = False, generator=torch.Generator(device=device))
 
 print('train_loader device:',train_loader.device)
@@ -73,9 +74,9 @@ for LHb in LHb_network:
                     net = EPLHb(EP_size,LHb_size,DAN_size,
                                 LHb_rnn=rnn,EP_LHb=eplhb,LHb_DAN=lhbdan,
                                 prob_EP_to_LHb=prob_EP_to_LHb,prob_LHb_to_LHb=LHb,prob_LHb_to_DAN=prob_LHb_to_DAN)
+                    if torch.cuda.is_available(): net.cuda()
                     initial_params = net.record_params(calc_sign=False)
                     training_loss, test_accuracy = [], []
-                    if torch.cuda.is_available(): net.cuda()
 
                     # Train on original data
                     optimizer = adam(net.parameters(), lr=lr, fixed_sign=fixed_sign_update)
