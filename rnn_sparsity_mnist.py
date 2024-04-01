@@ -11,7 +11,7 @@ import pickle
 from datetime import date
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-# torch.set_default_device(device)
+torch.set_default_device(device)
 
 # Downloading MNIST data
 train_data = datasets.MNIST(root = './data', train = True,
@@ -22,9 +22,9 @@ test_data = datasets.MNIST(root = './data', train = False,
 # Loading the data
 batch_size = 100 # the size of input data took for one iteration
 train_loader = torch.utils.data.DataLoader(dataset=train_data, batch_size=batch_size,
-                                           shuffle=True, pin_memory=True)
+                                           shuffle=True, pin_memory=True, pin_memory_device=device)
 test_loader = torch.utils.data.DataLoader(dataset=test_data, batch_size=batch_size,
-                                          shuffle=False, pin_memory=True)
+                                          shuffle=False, pin_memory=True, pin_memory_device=device)
 
 print("train_data device: ", train_data.data.device)
 print("test_data device: ", test_data.data.device)
