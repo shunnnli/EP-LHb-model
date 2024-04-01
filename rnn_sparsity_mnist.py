@@ -21,9 +21,9 @@ test_data = datasets.MNIST(root = './data', train = False,
 
 # Loading the data
 batch_size = 100 # the size of input data took for one iteration
-train_loader = torch.utils.data.DataLoader(dataset=train_data, batch_size=batch_size,
+train_loader = torch.utils.data.DataLoader(dataset=train_data, batch_size=batch_size, generator=torch.Generator(device=device),
                                            shuffle=True, pin_memory=True, pin_memory_device=device)
-test_loader = torch.utils.data.DataLoader(dataset=test_data, batch_size=batch_size,
+test_loader = torch.utils.data.DataLoader(dataset=test_data, batch_size=batch_size, generator=torch.Generator(device=device),
                                           shuffle=False, pin_memory=True, pin_memory_device=device)
 
 print("train_data device: ", train_data.data.device)
