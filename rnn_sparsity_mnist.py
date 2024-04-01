@@ -18,8 +18,6 @@ train_data = datasets.MNIST(root = './data', train = True,
                         transform = transforms.ToTensor(), download = True)
 test_data = datasets.MNIST(root = './data', train = False,
                        transform = transforms.ToTensor())
-train_data.to(device)
-test_data.to(device)
 
 # Loading the data
 batch_size = 100 # the size of input data took for one iteration
@@ -28,8 +26,8 @@ train_loader = torch.utils.data.DataLoader(dataset = train_data, batch_size = ba
 test_loader = torch.utils.data.DataLoader(dataset = test_data, batch_size = batch_size,
                                           shuffle = False, generator=torch.Generator(device=device))
 
-print('train_loader device:',train_loader.device)
-print('test_loader device:',test_loader.device)
+train_data.train_data.to(torch.device(device))  # put data into GPU entirely
+train_data.train_labels.to(torch.device(device))
 
 
 # Define conditions
