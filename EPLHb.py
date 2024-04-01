@@ -170,6 +170,8 @@ class EPLHb(nn.Module):
     for epoch in range(num_epochs):
       for i, (data,labels) in enumerate(train_loader):
         data, labels = data.to(device), labels.to(device)
+
+        self.train()
         optimizer.zero_grad()
 
         if self.LHb_rnn: data = data.view(-1,1, self.EP_size)
