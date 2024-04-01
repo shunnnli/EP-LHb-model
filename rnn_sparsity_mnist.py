@@ -27,20 +27,20 @@ batch_size = 100 # the size of input data took for one iteration
 train_loader = torch.utils.data.DataLoader(dataset=train_data, batch_size=batch_size, generator=torch.Generator(device=device),
                                            shuffle=True)
 test_loader = torch.utils.data.DataLoader(dataset=test_data, batch_size=batch_size, generator=torch.Generator(device=device),
-                                          shuffle=True)
+                                          shuffle=False)
 
-print("train_loader device:", train_loader.dataset.data.device)
-print("test_loader device:", test_loader.dataset.data.device)
+# print("train_loader device:", train_loader.dataset.data.device)
+# print("test_loader device:", test_loader.dataset.data.device)
 
-train_loader = torch.utils.data.DataLoader(dataset=train_data, batch_size=batch_size, generator=torch.Generator(device=device),
-                                           shuffle=True, pin_memory=True)
-test_loader = torch.utils.data.DataLoader(dataset=test_data, batch_size=batch_size, generator=torch.Generator(device=device),
-                                          shuffle=True, pin_memory=True)
+# train_loader = torch.utils.data.DataLoader(dataset=train_data, batch_size=batch_size, generator=torch.Generator(device=device),
+#                                            shuffle=True, pin_memory=True, pin_memory_device=device)
+# test_loader = torch.utils.data.DataLoader(dataset=test_data, batch_size=batch_size, generator=torch.Generator(device=device),
+#                                           shuffle=True, pin_memory=True, pin_memory_device=device)
 
-print("train_loader device:", train_loader.dataset.data.device)
-print("test_loader device:", test_loader.dataset.data.device)
-print("train_loader pin:", train_loader.pin_memory_device)
-print("test_loader pin:", test_loader.pin_memory_device)
+# print("train_loader device:", train_loader.dataset.data.device)
+# print("test_loader device:", test_loader.dataset.data.device)
+# print("train_loader pin:", train_loader.pin_memory_device)
+# print("test_loader pin:", test_loader.pin_memory_device)
 
 # Define conditions
 LHb_network = [0, 0.2, 0.4, 0.6, 0.8, 1]
