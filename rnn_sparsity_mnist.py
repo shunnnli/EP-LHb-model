@@ -80,8 +80,6 @@ for LHb in LHb_network:
                     # scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
                     training_loss, test_accuracy = net.train_model(num_epochs,train_loader,optimizer,
                                                     test_loader=test_loader,print_epoch=False,loss='CrossEntropyLoss')
-                    # training_loss.extend(training_loss)
-                    # test_accuracy.extend(test_accuracy)
 
                     network_training_loss.append(training_loss)
                     network_test_accuracy.append(test_accuracy)
@@ -99,7 +97,7 @@ for LHb in LHb_network:
 
 # Save as pickle file
 today = date.today()
-filename = '/n/holylabs/LABS/bsabatini_lab/Users/shunnnli/EP-LHb-model/results/MNIST/model_comparison_'+today.strftime("%Y%m%d")+'.pkl'
+filename = '/n/holylabs/LABS/bsabatini_lab/Users/shunnnli/EP-LHb-model/results/MNIST/'+today.strftime("%Y%m%d")+'/model_comparison_'+today.strftime("%Y%m%d")+'.pkl'
 print('Saving to',filename)
 
 with open(filename, 'wb') as f:

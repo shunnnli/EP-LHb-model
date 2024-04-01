@@ -121,7 +121,7 @@ for LHb in LHb_network:
 
 # Save as pickle file
 today = date.today()
-filename = '/n/holylabs/LABS/bsabatini_lab/Users/shunnnli/EP-LHb-model/results/Random/model_comparison_'+today.strftime("%Y%m%d")+'.pkl'
+filename = '/n/holylabs/LABS/bsabatini_lab/Users/shunnnli/EP-LHb-model/results/Random/'+today.strftime("%Y%m%d")+'/model_comparison_'+today.strftime("%Y%m%d")+'.pkl'
 print('Saving to',filename)
 
 with open(filename, 'wb') as f:
