@@ -26,9 +26,9 @@ test_data = [(data.to(device), target.to(device)) for data, target in test_data]
 # Loading the data
 batch_size = 100 # the size of input data took for one iteration
 train_loader = torch.utils.data.DataLoader(dataset=train_data, batch_size=batch_size,
-                                           shuffle=True, generator=torch.Generator(device=device))
+                                           shuffle=True, generator=torch.Generator(device=device),pin_memory=True)
 test_loader = torch.utils.data.DataLoader(dataset=test_data, batch_size=batch_size,
-                                          shuffle=False, generator=torch.Generator(device=device))
+                                          shuffle=False, generator=torch.Generator(device=device),pin_memory=True)
 
 print("train_data device: ", train_data.data.device)
 print("test_data device: ", test_data.data.device)
