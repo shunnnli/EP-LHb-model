@@ -22,12 +22,9 @@ test_data = datasets.MNIST(root = './data', train = False,
 # Loading the data
 batch_size = 100 # the size of input data took for one iteration
 train_loader = torch.utils.data.DataLoader(dataset = train_data, batch_size = batch_size,
-                                           shuffle = True, generator=torch.Generator(device=device))
+                                           shuffle = True)
 test_loader = torch.utils.data.DataLoader(dataset = test_data, batch_size = batch_size,
-                                          shuffle = False, generator=torch.Generator(device=device))
-
-train_data.train_data.to(torch.device(device))  # put data into GPU entirely
-train_data.train_labels.to(torch.device(device))
+                                          shuffle = False)
 
 
 # Define conditions
