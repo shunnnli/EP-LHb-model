@@ -79,11 +79,11 @@ for LHb in LHb_network:
                                                     test_loader=test_loader,print_epoch=False,loss='CrossEntropyLoss')
 
                     network_test_accuracy.append(test_accuracy)
-                    print("test_accuracy device",test_accuracy.is_cuda)
+                    # print("test_accuracy device",test_accuracy.is_cuda)
                     print('Finished training network %d/%d' %(i,n_networks))
 
                 # Convert list to numpy array
-                print("network_test_accuracy device",network_test_accuracy.is_cuda)
+                # print("network_test_accuracy device",network_test_accuracy.is_cuda)
                 network_training_loss = np.array(network_training_loss)
                 network_test_accuracy = np.array(network_test_accuracy)
 
