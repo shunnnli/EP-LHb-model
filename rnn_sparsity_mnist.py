@@ -24,7 +24,7 @@ batch_size = 100 # the size of input data took for one iteration
 train_loader = torch.utils.data.DataLoader(dataset=train_data, batch_size=batch_size, generator=torch.Generator(device=device),
                                            shuffle=True, pin_memory=True)
 test_loader = torch.utils.data.DataLoader(dataset=test_data, batch_size=batch_size, generator=torch.Generator(device=device),
-                                          shuffle=False, pin_memory=True)
+                                          shuffle=True, pin_memory=True)
 
 # Define conditions
 LHb_network = [0, 0.2, 0.4, 0.6, 0.8, 1]
