@@ -192,6 +192,7 @@ class EPLHb(nn.Module):
             correct, total = 0, 0
             # Iterate through test dataset
             for test_data, test_labels in test_loader:
+              test_data, test_labels = test_data.to(device), test_labels.to(device)
               if self.LHb_rnn: test_data = test_data.view(-1,1, self.EP_size)
               elif test_data.ndim != 2: test_data = test_data.view(-1, self.EP_size)
 
