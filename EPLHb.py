@@ -7,7 +7,8 @@ class EPLHb(nn.Module):
   def __init__(self, EP_size, LHb_size, DAN_size, 
                LHb_rnn: bool=False,
                EP_LHb: str="corelease", LHb_DAN: str="real", 
-               prob_EP_to_LHb: float=1, prob_LHb_to_LHb: float=1, prob_LHb_to_DAN: float=1):
+               prob_EP_to_LHb: float=1, prob_LHb_to_LHb: float=1, prob_LHb_to_DAN: float=1,
+               DFA: bool=False):
     super(EPLHb,self).__init__()
     
     # Initialize layers
