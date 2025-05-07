@@ -6,7 +6,7 @@ import numpy as np
 import random
 import matplotlib.pyplot as plt
 from collections import deque
-# import torch.nn.functional as F
+import torch.nn.functional as F
 import os
 
 # Set seeds for reproducibility
@@ -18,16 +18,16 @@ def seed_everything(seed=0):
 
 # ---------- Configuration Section ---------- #
 config = {
-    'render': False,                 # Toggle live rendering
-    'with_EPLHb': True,              # Use EPLHb module
+    'render': False,                 # Toggle rendering
+    'rule': 'TD',                 # Rule to use: 'EPLHb' or 'TD' or 'PD'
     
-    'lr_ctxbg': 1e-4,                # Learning rate for CtxBG
-    'lr_q_net': 1e-4,                # Learning rate for QNetwork
-    'lr_eplhb': 1e-4,                # Learning rate for EPLHb
+    'lr_ctxbg': 1e-3,                # Learning rate for CtxBG
+    'lr_q_net': 1e-3,                # Learning rate for QNetwork
+    'lr_eplhb': 5e-3,                # Learning rate for EPLHb
     'gamma': 0.99,                   # Discount factor
 
-    'noise_min': 1,                # Minimum noise for EPLHb
-    'noise_max': 1,                # Maximum noise for EPLHb
+    'noise_min': 0.9,                # Minimum noise for EPLHb
+    'noise_max': 1.1,                # Maximum noise for EPLHb
 
     'compressed_dim': 16,            # Number of CtxBG neurons
     'eplhb_hidden_dim': 32,          # Number of hidden neurons in EPLHb
@@ -84,16 +84,31 @@ class ReplayBuffer:
 # ---------- Biological Neural Network Modules ---------- #
 class CtxBG(nn.Module):
     """Models cortical + basal ganglia compression."""
-    def __init__(self, input_dim):
+    def __init__(self, input_dim, action_dim):
         super().__init__()
-        self.net = nn.Sequential(
+        # Existing cortex-basal ganglia encoder
+        self.encoder = nn.Sequential(
             nn.Linear(input_dim, 32),
             nn.ReLU(),
             nn.Linear(32, config['compressed_dim']),
             nn.ReLU()
         )
-    def forward(self, x):
-        return self.net(x)
+        # Forward model head: predict next comperssed state from z and action
+        self.forward_model = nn.Sequential(
+            nn.Linear(config['compressed_dim'] + action_dim, 32),
+            nn.ReLU(),
+            nn.Linear(32, config['compressed_dim']),
+            nn.ReLU()
+        )
+    def encode(self, obs):
+        # returns compressed state z
+        return self.encoder(obs)
+
+    def predict(self, z, a):
+        # a: LongTensor of shape [batch]
+        a_onehot = F.one_hot(a, num_classes=self.forward_model[0].in_features - z.size(1)).float()
+        inp = torch.cat([z, a_onehot], dim=-1)
+        return self.forward_model(inp)
 
 class QNetwork(nn.Module):
     """Q(s,a) network that takes compressed features as input."""
@@ -108,39 +123,44 @@ class QNetwork(nn.Module):
         return self.q_net(x)
 
 class EPLHb(nn.Module):
-    """EP–LHb synapse that shapes the TD-error."""
+    """EP–LHb see both the current and predicted value–features and learn to compare them itself."""
     def __init__(self, compressed_dim):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(compressed_dim, config['eplhb_hidden_dim']),
+            nn.Linear(2*compressed_dim, config['eplhb_hidden_dim']),
             nn.ReLU(),
             nn.Linear(config['eplhb_hidden_dim'], 1)
         )
-    def forward(self, z):
+    def forward(self, z, z_pred=None):
         # x = torch.cat([z, td_error.unsqueeze(-1)], dim=-1)
-        x = z
-        return self.net(x).squeeze()
+        if z_pred is None:
+            z_pred = torch.zeros_like(z)
+        x = torch.cat([z, z_pred], dim=-1)
+        return self.net(x).squeeze(-1)
 
 # ---------- RL Agent with Multi-step Returns & Target Network ---------- #
 class BioQAgent:
     def __init__(self, obs_dim, action_dim, device="cpu"):
         self.device = device
-        self.ctxbg = CtxBG(obs_dim).to(device)
+        # Initialize CtxBG
+        self.ctxbg = CtxBG(obs_dim,action_dim).to(device)
+        # Initialize Q-network and target network
         self.q_net = QNetwork(config['compressed_dim'], action_dim).to(device)
         self.q_target = QNetwork(config['compressed_dim'], action_dim).to(device)
         self.q_target.load_state_dict(self.q_net.state_dict())
         self.q_target.eval()
+        # Initialize EPLHb
         self.eplhb = EPLHb(config['compressed_dim']).to(device)
-        
-
         self.EPLHb_coeff = nn.Parameter(torch.tensor(-0.5, dtype=torch.float32, device=device))
-
+        # Initialize optimizer
         self.optimizer = optim.Adam([
             {'params': self.ctxbg.parameters(), 'lr': config['lr_ctxbg']},
             {'params': self.q_net.parameters(),  'lr': config['lr_q_net']},
             {'params': self.eplhb.parameters(), 'lr': config['lr_eplhb']},
             {'params': self.EPLHb_coeff, 'lr': config['lr_eplhb']}
         ])
+
+        self.prev_td_error = torch.zeros(config['batch_size'], device=device) # Track previous td-error
         self.buffer = ReplayBuffer(config['buffer_size'], config['batch_size'])
         self.n_step_buffer = deque(maxlen=config['n_step'])
         self.action_dim = action_dim
@@ -158,7 +178,7 @@ class BioQAgent:
     def act(self, obs):
         obs_t = torch.tensor(obs, dtype=torch.float32).to(self.device)
         with torch.no_grad():
-            z = self.ctxbg(obs_t)
+            z = self.ctxbg.encode(obs_t)
             q_values = self.q_net(z)
         if random.random() < self.epsilon:
             return random.randrange(self.action_dim)
@@ -195,6 +215,7 @@ class BioQAgent:
                 'loss':            0.0,
                 'td_error':        0.0,
                 'td_error_noised': 0.0,
+                'delta_td':        0.0,
                 'final_td_error':  0.0,
                 'eplhb_out':       0.0,
             }
@@ -204,28 +225,51 @@ class BioQAgent:
         action_t     = torch.tensor(actions, dtype=torch.int64).to(self.device)
         reward_t     = torch.tensor(rewards, dtype=torch.float32).to(self.device)
         done_t       = torch.tensor(dones, dtype=torch.float32).to(self.device)
-        z      = self.ctxbg(state_t)
-        next_z = self.ctxbg(next_state_t)
+
+        # Enccode current and next compressed states
+        z      = self.ctxbg.encode(state_t)
+        next_z = self.ctxbg.encode(next_state_t)
+        # Compute Q-values for current state action pair
         q_vals = self.q_net(z)
-        current_q_val  = q_vals.gather(1, action_t.unsqueeze(1)).squeeze(1)
+        current_q  = q_vals.gather(1, action_t.unsqueeze(1)).squeeze(1)
         
+        # Feedback TD error
         with torch.no_grad():
             next_q    = self.q_target(next_z)
             max_next  = next_q.max(1)[0]
-            target_q_val = reward_t + (self.gamma ** self.n_step) * max_next * (1 - done_t)
-        target_q_val = target_q_val.detach()
-        td_error  = target_q_val - current_q_val
-        eplhb_out = self.eplhb(z)
+            target_q = reward_t + (self.gamma ** self.n_step) * max_next * (1 - done_t)
+        target_q = target_q.detach()
+        td_error  = target_q - current_q
+
+        # Feedforward predicted error
+        with torch.no_grad():
+            z_pred = self.ctxbg.predict(z, action_t)
+            next_q_pred = self.q_target(z_pred)
+            max_next_pred = next_q_pred.max(1)[0]
+            target_q_pred = reward_t + (self.gamma ** self.n_step) * max_next_pred * (1 - done_t)
+        td_error_pred = target_q_pred - current_q.detach()
+
+        # Feedforward D-term
+        delta_td = td_error_pred - self.prev_td_error
+        self.prev_td_error = td_error_pred.detach()
+
+        # EP LHb to calculate D-term
+        eplhb_out = self.eplhb(z, z_pred)
         
-        if config['with_EPLHb']:
+        if config['rule'] == 'EPLHb':
             # Use EPLHb to modulate the TD-error
             EPLHb_coeff = -torch.sigmoid(self.EPLHb_coeff)
             noise = torch.empty_like(td_error).uniform_(config['noise_min'], config['noise_max'])
             final_td_error = EPLHb_coeff * eplhb_out + noise * td_error
+        elif config['rule'] == 'PD':
+            # Use PD to modulate the TD-error
+            EPLHb_coeff = -torch.sigmoid(self.EPLHb_coeff)
+            noise = torch.empty_like(td_error).uniform_(config['noise_min'], config['noise_max'])
+            final_td_error = noise * td_error + EPLHb_coeff * delta_td
         else:
             # Use standard TD-error
-            noise = torch.empty_like(td_error).uniform_(1, 1)
-            final_td_error = td_error
+            noise = torch.empty_like(td_error).uniform_(config['noise_min'], config['noise_max'])
+            final_td_error = noise * td_error
 
         loss = final_td_error.pow(2).mean()
         # loss = F.smooth_l1_loss(final_td_error, torch.zeros_like(final_td_error))
@@ -239,6 +283,7 @@ class BioQAgent:
             'loss':       loss.item(),
             'td_error':   td_error.detach().mean().item(),
             'td_error_noised': (td_error * noise).detach().mean().item(),
+            'delta_td':  delta_td.detach().mean().item(),
             'final_td_error':  final_td_error.detach().mean().item(),
             'eplhb_out':  eplhb_out.detach().mean().item(),
         }
@@ -255,6 +300,7 @@ def train(env_name="CartPole-v1", episodes=500):
     loss_history = []
     td_error_history = []
     td_error_noised_history = []
+    delta_td_history = []
     final_td_error_history = []
     eplhb_history = []
 
@@ -272,8 +318,6 @@ def train(env_name="CartPole-v1", episodes=500):
         )
 
         while not done:
-            if config['render']:
-                env.render()
             action = agent.act(obs)
             next_obs, reward, done, truncated, _ = env.step(action)
             agent.store(obs, action, reward, next_obs, done)
@@ -291,21 +335,24 @@ def train(env_name="CartPole-v1", episodes=500):
             loss_history.append(results['loss'])
             td_error_history.append(results['td_error'])
             td_error_noised_history.append(results['td_error_noised'])
+            delta_td_history.append(results['delta_td'])
             final_td_error_history.append(results['final_td_error'])
             eplhb_history.append(results['eplhb_out'])
 
         if total_reward > best_reward:
             best_reward = total_reward
-            # Save the model if needed
-            if not os.path.exists("checkpoints"):
-                os.makedirs("checkpoints")
-            save_dir = "checkpoints"
-            torch.save({
-                "ctxbg":    agent.ctxbg.state_dict(),
-                "q_net":    agent.q_net.state_dict(),
-                "q_target": agent.q_target.state_dict(),
-                "eplhb":    agent.eplhb.state_dict(),
-            }, os.path.join(save_dir, "best_model.pth"))
+
+            if config['render']:
+                # Save the model if needed
+                if not os.path.exists("checkpoints"):
+                    os.makedirs("checkpoints")
+                save_dir = "checkpoints"
+                torch.save({
+                    "ctxbg":    agent.ctxbg.state_dict(),
+                    "q_net":    agent.q_net.state_dict(),
+                    "q_target": agent.q_target.state_dict(),
+                    "eplhb":    agent.eplhb.state_dict(),
+                }, os.path.join(save_dir, "best_model.pth"))
 
         if ep % 10 == 0:
             print(f"Episode {ep}/{episodes} | Total Reward: {total_reward} | Loss: {results['loss']:.4f} | Final TD Error: {results['final_td_error']:.4f}")
@@ -318,6 +365,7 @@ def train(env_name="CartPole-v1", episodes=500):
         'losses':           loss_history,
         'td_errors':        td_error_history,
         'td_errors_noised': td_error_noised_history,
+        'delta_td_errors':  delta_td_history,
         'final_td_errors':  final_td_error_history,
         'eplhb_outputs':    eplhb_history,
     }
@@ -329,7 +377,7 @@ if __name__ == "__main__":
     agent, train_results = train()
 
     # ─── 1) Plot the training results ────────────────────────────────
-    fig, axs = plt.subplots(1, 3, figsize=(12, 6), sharex=True)
+    fig, axs = plt.subplots(1, 4, figsize=(12, 6), sharex=True)
 
     # Plot reward and loss history on two y-axes
     ax0 = axs[0]
@@ -345,16 +393,15 @@ if __name__ == "__main__":
     avg_loss   = np.mean(train_results['losses'])
     ax0.set_title(f"Avg reward: {avg_reward:.2f} | Avg loss: {avg_loss:.2f}")
 
-    # Plot TD-error and EPLHb output
+    # Plot TD-errors
     ax2 = axs[1]
     ax2.set_xlabel("Episode")
     ax2.set_ylabel("Value")
     ax2.plot(train_results['td_errors'], label='TD-error')
     ax2.plot(train_results['td_errors_noised'], label='Noised TD-error')
     ax2.plot(train_results['final_td_errors'], label='Final TD-error')
-    ax2.plot(train_results['eplhb_outputs'], label='EPLHb Output')
-    ax2.legend(["TD error (raw)", "TD error (noised)","TD error (final)", "EPLHb Output"])
-    ax2.set_title("Errors and EPLHb Output Over Time")
+    ax2.legend(["TD error (raw)", "TD error (noised)","TD error (final)"])
+    ax2.set_title("TD Errors Over Time")
 
     # Plot differences between TD error versions
     ax3 = axs[2]
@@ -364,6 +411,14 @@ if __name__ == "__main__":
     ax3.plot(np.array(train_results['td_errors']) - np.array(train_results['final_td_errors']), label='TD-error - Final TD-error')
     ax3.legend(["TD error - Noised TD-error", "TD error - Final TD-error"])
     ax3.set_title("Differences Between TD Error Versions")
+
+    ax4 = axs[3]
+    ax4.set_xlabel("Episode")
+    ax4.set_ylabel("Value")
+    ax4.plot(train_results['delta_td_errors'], label='Delta TD error')
+    ax4.plot(train_results['eplhb_outputs'], label='EPLHb Output')
+    ax4.legend(["Delta TD error", "EPLHb Output"])
+    ax4.set_title("Delta TD Error and EPLHb Output")
     fig.tight_layout()
     plt.show()
 
@@ -381,16 +436,17 @@ if __name__ == "__main__":
     agent.eplhb.eval()
 
     # ─── 3) Render a few episodes with the “best” agent ────────────────────────
-    render_env = gym.make("CartPole-v1", render_mode="human")
-    for ep in range(5):
-        obs, _ = render_env.reset()
-        done = False
-        total_reward = 0
-        while not done:
-            action = agent.act(obs)
-            obs, reward, done, _, _ = render_env.step(action)
-            total_reward += reward
-            # for some gym versions you may also need:
-            # render_env.render()
-        print(f"[Render] Episode {ep+1} → Reward {total_reward:.1f}")
-    render_env.close()
+    if config['render']:
+        render_env = gym.make("CartPole-v1", render_mode="human")
+        for ep in range(5):
+            obs, _ = render_env.reset()
+            done = False
+            total_reward = 0
+            while not done:
+                action = agent.act(obs)
+                obs, reward, done, _, _ = render_env.step(action)
+                total_reward += reward
+                # for some gym versions you may also need:
+                # render_env.render()
+            print(f"[Render] Episode {ep+1} → Reward {total_reward:.1f}")
+        render_env.close()
