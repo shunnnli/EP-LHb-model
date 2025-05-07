@@ -19,7 +19,8 @@ def seed_everything(seed=0):
 # ---------- Configuration Section ---------- #
 config = {
     'render': False,                 # Toggle rendering
-    'rule': 'TD',                 # Rule to use: 'EPLHb' or 'TD' or 'PD'
+    'rule': 'TD',                    # Rule to use: 'EPLHb' or 'TD' or 'PD'
+    'n_networks': 10,                 # Number of networks to train
     
     'lr_ctxbg': 1e-3,                # Learning rate for CtxBG
     'lr_q_net': 1e-3,                # Learning rate for QNetwork
@@ -52,6 +53,22 @@ def soft_update(target, source, tau):
     """Soft-update target network parameters."""
     for t_param, s_param in zip(target.parameters(), source.parameters()):
         t_param.data.copy_(t_param.data * (1.0 - tau) + s_param.data * tau)
+
+def plotSEM(x, y, label=None, color=None, ax=None, alpha=0.2):
+    """Plot with shaded error margin."""
+    if ax is None:
+        ax = plt.gca()
+    if color is None:
+        color = ax._get_lines.get_next_color()
+    if label is None:
+        label = ax._get_lines.get_next_label()
+    
+    mean = np.mean(y, axis=0)
+    std = np.std(y, axis=0)
+    ax.plot(x, mean, label=label, color=color)
+    ax.fill_between(x, mean - std, mean + std, alpha=alpha, color=color,
+                     edgecolor='None', label='_nolegend_')
+
 
 class ReplayBuffer:
     """Simple FIFO replay buffer"""
@@ -374,20 +391,66 @@ def train(env_name="CartPole-v1", episodes=500):
 
 # ---------- Main Execution ---------- #
 if __name__ == "__main__":
-    agent, train_results = train()
+
+    num_networks = config['n_networks']
+    avg_reward = np.zeros(num_networks)
+    reward_histories = np.zeros((num_networks, 500))
+    loss_histories = np.zeros((num_networks, 500))
+    td_error_histories = np.zeros((num_networks, 500))
+    td_error_noised_histories = np.zeros((num_networks, 500))
+    delta_td_histories = np.zeros((num_networks, 500))
+    final_td_error_histories = np.zeros((num_networks, 500))
+    eplhb_histories = np.zeros((num_networks, 500))
+
+    best_reward = -float('inf')
+    best_model = None
+    best_model_path = "checkpoints/best_model.pth"
+
+    for i in range(num_networks):
+        print(f"Training network {i+1}/{num_networks}")
+        # Train the agent
+        agent, train_results = train()
+        avg_reward[i] = np.mean(train_results['rewards'])
+        reward_histories[i] = np.array(train_results['rewards'])
+        loss_histories[i] = np.array(train_results['losses'])
+        td_error_histories[i] = np.array(train_results['td_errors'])
+        td_error_noised_histories[i] = np.array(train_results['td_errors_noised'])
+        delta_td_histories[i] = np.array(train_results['delta_td_errors'])
+        final_td_error_histories[i] = np.array(train_results['final_td_errors'])
+        eplhb_histories[i] = np.array(train_results['eplhb_outputs'])
+
+        # Save the model if needed if its the best model
+        if avg_reward[i] > best_reward:
+            best_reward = avg_reward[i]
+            best_model = agent
+            if not os.path.exists("checkpoints"):
+                os.makedirs("checkpoints")
+            torch.save({
+                "ctxbg":    agent.ctxbg.state_dict(),
+                "q_net":    agent.q_net.state_dict(),
+                "q_target": agent.q_target.state_dict(),
+                "eplhb":    agent.eplhb.state_dict(),
+            }, best_model_path)
+            print(f"Saved best model to {best_model_path}")
+        print(f"Average reward for network {i+1}: {avg_reward[i]:.2f}")
+
+    # ─── 0) Print the average reward for each networks ────────────────────────────────
+    print("Average rewards for each network:")
+    for i in range(num_networks):
+        print(f"Network {i+1}: {avg_reward[i]:.2f}")
 
     # ─── 1) Plot the training results ────────────────────────────────
-    fig, axs = plt.subplots(1, 4, figsize=(12, 6), sharex=True)
+    fig, axs = plt.subplots(1, 4, figsize=(20, 10), sharex=True)
 
-    # Plot reward and loss history on two y-axes
+    # Plot reward and loss histories for all networks with SEM on two y-axes
     ax0 = axs[0]
     ax0.set_xlabel("Episode")
     ax0.set_ylabel("Total Reward", color='tab:blue')
-    ax0.plot(train_results['rewards'], color='tab:blue')
+    plotSEM(np.arange(500), reward_histories, label='Reward', color='tab:blue', ax=ax0)
     ax0.tick_params(axis='y', labelcolor='tab:blue')
     ax1 = ax0.twinx()
     ax1.set_ylabel("Loss", color='tab:red')
-    ax1.plot(train_results['losses'], color='tab:red')
+    plotSEM(np.arange(500), loss_histories, label='Loss', color='tab:red', ax=ax1)
     ax1.tick_params(axis='y', labelcolor='tab:red')
     avg_reward = np.mean(train_results['rewards'])
     avg_loss   = np.mean(train_results['losses'])
@@ -397,9 +460,9 @@ if __name__ == "__main__":
     ax2 = axs[1]
     ax2.set_xlabel("Episode")
     ax2.set_ylabel("Value")
-    ax2.plot(train_results['td_errors'], label='TD-error')
-    ax2.plot(train_results['td_errors_noised'], label='Noised TD-error')
-    ax2.plot(train_results['final_td_errors'], label='Final TD-error')
+    plotSEM(np.arange(500), td_error_histories, label='TD-error', color='tab:green', ax=ax2)
+    plotSEM(np.arange(500), td_error_noised_histories, label='Noised TD-error', color='tab:orange', ax=ax2)
+    plotSEM(np.arange(500), final_td_error_histories, label='Final TD-error', color='tab:purple', ax=ax2)
     ax2.legend(["TD error (raw)", "TD error (noised)","TD error (final)"])
     ax2.set_title("TD Errors Over Time")
 
@@ -407,16 +470,16 @@ if __name__ == "__main__":
     ax3 = axs[2]
     ax3.set_xlabel("Episode")
     ax3.set_ylabel("Value")
-    ax3.plot(np.array(train_results['td_errors']) - np.array(train_results['td_errors_noised']), label='TD-error - Noised TD-error')
-    ax3.plot(np.array(train_results['td_errors']) - np.array(train_results['final_td_errors']), label='TD-error - Final TD-error')
+    plotSEM(np.arange(500), td_error_histories - td_error_noised_histories, label='TD-error - Noised TD-error', color='tab:olive', ax=ax3)
+    plotSEM(np.arange(500), td_error_histories - final_td_error_histories, label='TD-error - Final TD-error', color='tab:pink', ax=ax3)
     ax3.legend(["TD error - Noised TD-error", "TD error - Final TD-error"])
     ax3.set_title("Differences Between TD Error Versions")
 
     ax4 = axs[3]
     ax4.set_xlabel("Episode")
     ax4.set_ylabel("Value")
-    ax4.plot(train_results['delta_td_errors'], label='Delta TD error')
-    ax4.plot(train_results['eplhb_outputs'], label='EPLHb Output')
+    plotSEM(np.arange(500), delta_td_histories, label='Delta TD error', color='tab:purple', ax=ax4)
+    plotSEM(np.arange(500), eplhb_histories, label='EPLHb Output', color='tab:green', ax=ax4)
     ax4.legend(["Delta TD error", "EPLHb Output"])
     ax4.set_title("Delta TD Error and EPLHb Output")
     fig.tight_layout()
