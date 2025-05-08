@@ -19,7 +19,7 @@ def seed_everything(seed=0):
 # ---------- Configuration Section ---------- #
 config = {
     'render': False,                 # Toggle rendering
-    'rule': 'PD',                    # Rule to use: 'EPLHb' or 'TD' or 'PD'
+    'rule': 'TD',                    # Rule to use: 'EPLHb' or 'TD' or 'PD'
     'n_networks': 10,                 # Number of networks to train
     
     'lr_ctxbg': 1e-3,                # Learning rate for CtxBG
@@ -27,22 +27,22 @@ config = {
     'lr_eplhb': 5e-3,                # Learning rate for EPLHb
     'gamma': 0.99,                   # Discount factor
 
-    'noise_min': 0.9,                # Minimum noise for EPLHb
-    'noise_max': 1.1,                # Maximum noise for EPLHb
+    'noise_min': 1.0,                # Minimum noise for EPLHb
+    'noise_max': 1.0,                # Maximum noise for EPLHb
 
     'compressed_dim': 16,            # Number of CtxBG neurons
     'eplhb_hidden_dim': 32,          # Number of hidden neurons in EPLHb
     'qnet_dim': 64,                  # Number of neurons in QNetwork
 
     'epsilon_start': 1.0,            # Initial exploration probability
-    'epsilon_min': 0.10,             # Minimum exploration probability
+    'epsilon_min': 0.01,             # Minimum exploration probability
     'decay_rate': 0.01,              # Exponential decay rate for epsilon
-    'target_update_freq': 1,        # Episodes between target network updates
+    'target_update_freq': 1,         # Episodes between target network updates
 
     'buffer_size': 10000,            # Replay buffer capacity
     'batch_size': 64,                # Mini-batch size for updates
     'warmup_size': 100,              # Minimum experiences before learning
-    'tau': 5e-3,                     # Soft update coefficient (if used)
+    'tau': 1e-3,                     # Soft update coefficient (if used)
     'n_step': 1                      # Number of steps for multi-step returns (1 is still the best)
 }
 
@@ -185,6 +185,7 @@ class BioQAgent:
         self.epsilon = config['epsilon_start']
         self.epsilon_min = config['epsilon_min']
         self.n_step = config['n_step']
+        self.tau = config['tau']
 
     def update_target_network(self):
         if hasattr(self, 'tau') and self.tau > 0:
@@ -410,7 +411,7 @@ if __name__ == "__main__":
         print(f"Training network {i+1}/{num_networks}")
         # Train the agent
         agent, train_results = train()
-        avg_reward[i] = np.mean(train_results['rewards'])
+        avg_reward[i] = np.mean(train_results['rewards'][-100:])
         reward_histories[i] = np.array(train_results['rewards'])
         loss_histories[i] = np.array(train_results['losses'])
         td_error_histories[i] = np.array(train_results['td_errors'])
@@ -447,12 +448,13 @@ if __name__ == "__main__":
     ax0.set_xlabel("Episode")
     ax0.set_ylabel("Total Reward", color='tab:blue')
     plotSEM(np.arange(500), reward_histories, label='Reward', color='tab:blue', ax=ax0)
+    ax0.axhline(195, color='black', linestyle='--')
     ax0.tick_params(axis='y', labelcolor='tab:blue')
     ax1 = ax0.twinx()
     ax1.set_ylabel("Loss", color='tab:red')
     plotSEM(np.arange(500), loss_histories, label='Loss', color='tab:red', ax=ax1)
     ax1.tick_params(axis='y', labelcolor='tab:red')
-    avg_reward = np.mean(train_results['rewards'])
+    avg_reward = np.mean(train_results['rewards'][-100:])
     avg_loss   = np.mean(train_results['losses'])
     ax0.set_title(f"Avg reward: {avg_reward:.2f} | Avg loss: {avg_loss:.2f}")
 
