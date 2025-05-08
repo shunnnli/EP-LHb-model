@@ -19,7 +19,7 @@ def seed_everything(seed=0):
 # ---------- Configuration Section ---------- #
 config = {
     'render': False,                 # Toggle rendering
-    'rule': 'TD',                    # Rule to use: 'EPLHb' or 'TD' or 'PD'
+    'rule': 'PD',                    # Rule to use: 'EPLHb' or 'TD' or 'PD'
     'n_networks': 10,                 # Number of networks to train
     
     'lr_ctxbg': 1e-3,                # Learning rate for CtxBG
