@@ -22,11 +22,10 @@ def seed_everything(seed=0):
 # ---------- Configuration Section ---------- #
 config = {
     'render': False,                 # Toggle rendering
-    'rule': 'PD',                    # Rule to use: 'EPLHb' or 'TD' or 'PD'
-    'rules': ['TD', 'PD'],           # List of rules to use
+    'rules': ['PID'],           # List of rules to use
 
     'n_networks': 1,                 # Number of networks to train
-    'n_episodes': 50,               # Number of episodes to train
+    'n_episodes': 500,               # Number of episodes to train
     'sample_rate': 50,               # 50hz
     
     'lr_ctxbg': 1e-3,                # Learning rate for CtxBG
@@ -54,8 +53,8 @@ config = {
 
     'alpha': 0.1,                   # weight on δ′ inside the integral term
     'beta': 0.5,                    # weight on z_pred inside the integral term
-    'eta_gain': 1e-3,               # step size η for adapting kp, ki, kd
-    'epsilon_gain': 1e-6,           # small ε to avoid div by zero in denom
+    'eta_gain': 5e-8,               # step size η for adapting kp, ki, kd
+    'epsilon_gain': 1e-1,           # small ε to avoid div by zero in denom
     'lambda_BR': 1e-2               # λ for running_BR update
 }
 
@@ -131,41 +130,44 @@ def plot_results(col, rule, n_networks=1):
     ax2.set_ylabel("Value")
     plotSEM(np.arange(episodes), plot_dict[rule]['td_error_histories'], label='TD-error', color='tab:green', ax=ax2)
     plotSEM(np.arange(episodes), plot_dict[rule]['final_error_histories'], label='Final-error', color='tab:orange', ax=ax2)
+    ax3 = ax2.twinx()
+    ax3.set_ylabel("Delta TD error", color='tab:purple')
+    ax3.tick_params(axis='y', labelcolor='tab:purple')
+    plotSEM(np.arange(episodes), plot_dict[rule]['delta_td_histories'], label='Delta TD error', color='tab:purple', ax=ax3)
     ax2.legend()
     ax2.set_title("TD Errors Over Time", fontsize=fontsize)
 
-    if len(config['rules']) == 1 or len(config['rules']) == 2 and rule == 'PD':
-        ax3 = axs[col, 2]
-        ax3.set_xlabel("Episode")
-        ax3.set_ylabel("Value")
-        plotSEM(np.arange(episodes), plot_dict[rule]['delta_td_histories'], label='Delta TD error', color='tab:purple', ax=ax3)
-        ax3.set_title("Delta TD Error", fontsize=fontsize)
-
-    else:
-        ax3 = axs[col, 2]
-        ax3.set_xlabel("Frequency")
-        ax3.set_ylabel("Magnitude")
-        pd_freqs, pd_magnitudes = fft(td_error = plot_dict['PD']['final_error_histories'], sample_rate = config['sample_rate'], n_networks = n_networks)
-        td_freqs, td_magnitudes = fft(td_error = plot_dict['TD']['final_error_histories'], sample_rate = config['sample_rate'], n_networks = n_networks)
-        plotSEM(pd_freqs, pd_magnitudes, label='PD', color='tab:blue', ax=ax3)
-        plotSEM(td_freqs, td_magnitudes, label='TD', color='tab:orange', ax=ax3)
-
-        # Compute significance
-        if n_networks >= 2:
-            t_vals, p_vals = ttest_rel(td_magnitudes, pd_magnitudes, axis=0)
-            _, pvals_corrected, _, _ = multipletests(p_vals, method='fdr_bh')
-            signif_mask = pvals_corrected < 0.05
-
-            td_magnitudes_mean = np.mean(td_magnitudes, axis=0)
-            ax3.scatter(td_freqs[signif_mask],
-                        td_magnitudes_mean[signif_mask],
-                        color='red', s=10, label='p < 0.05')
-            ax3.set_title("FFT: Final TD Error Signal", fontsize=fontsize)
-            ax3.set_xlim(0, (config['sample_rate'])/2)
-            ax3.legend()
+    ax4 = axs[col, 2]
+    ax4.set_xlabel("Frequency")
+    ax4.set_ylabel("Magnitude")
+    for rule in config['rules']:
+        if rule == 'PID':
+            color = 'tab:blue'
+        elif rule == 'TD':
+            color = 'tab:orange'
         else:
-            print("Not enough networks to compute significance.")
-            ax3.legend()
+            color = 'tab:green'
+        freqs, magnitudes = fft(td_error = plot_dict[rule]['final_error_histories'], sample_rate = config['sample_rate'], n_networks = n_networks)
+        plotSEM(freqs, magnitudes, label=rule, color=color, ax=ax4)
+
+    # Compute significance
+    if n_networks >= 2 and len(config['rules']) > 1:
+        td_freqs, td_magnitudes = fft(td_error = plot_dict['TD']['final_error_histories'], sample_rate = config['sample_rate'], n_networks = n_networks)
+        pd_freqs, pd_magnitudes = fft(td_error = plot_dict['PID']['final_error_histories'], sample_rate = config['sample_rate'], n_networks = n_networks) 
+        t_vals, p_vals = ttest_rel(td_magnitudes, pd_magnitudes, axis=0)
+        _, pvals_corrected, _, _ = multipletests(p_vals, method='fdr_bh')
+        signif_mask = pvals_corrected < 0.05
+
+        td_magnitudes_mean = np.mean(td_magnitudes, axis=0)
+        ax4.scatter(td_freqs[signif_mask],
+                    td_magnitudes_mean[signif_mask],
+                    color='red', s=10, label='p < 0.05')
+        ax4.set_title("FFT: Final TD Error Signal", fontsize=fontsize)
+        ax4.set_xlim(0, (config['sample_rate'])/2)
+        ax4.legend()
+    else:
+        print("Not enough networks to compute significance.")
+        ax4.legend()
 
 
 
@@ -267,14 +269,21 @@ class BioQAgent:
         self.q_target.eval()
         # Initialize EPLHb
         self.eplhb = EPLHb(config['compressed_dim']).to(device)
-        self.EPLHb_coeff = nn.Parameter(torch.tensor(-0.5, dtype=torch.float32, device=device))
         # Initialize optimizer
         self.optimizer = optim.Adam([
             {'params': self.ctxbg.parameters(), 'lr': config['lr_ctxbg']},
             {'params': self.q_net.parameters(),  'lr': config['lr_q_net']},
             {'params': self.eplhb.parameters(), 'lr': config['lr_eplhb']},
-            {'params': self.EPLHb_coeff, 'lr': config['lr_eplhb']}
         ])
+
+        # Set PID gains
+        self.kp = 1.0
+        self.ki = 0.0
+        self.kd = 0.0
+        # Running estimate of <δ²> for normalization
+        self.running_BR = 0.0
+        # store previous Q-value (for derivative term)
+        self.prev_q_val = None
 
         self.prev_td_error = torch.zeros(config['batch_size'], device=device) # Track previous td-error
         self.buffer = ReplayBuffer(config['buffer_size'], config['batch_size'])
@@ -343,14 +352,14 @@ class BioQAgent:
         reward_t     = torch.tensor(rewards, dtype=torch.float32).to(self.device)
         done_t       = torch.tensor(dones, dtype=torch.float32).to(self.device)
 
-        # Enccode current and next compressed states
+        # Encode current and next compressed states
         z      = self.ctxbg.encode(state_t)
         next_z = self.ctxbg.encode(next_state_t)
         # Compute Q-values for current state action pair
         q_vals = self.q_net(z)
         current_q  = q_vals.gather(1, action_t.unsqueeze(1)).squeeze(1)
         
-        # Feedback TD error
+        # Feedback TD error, Line 7
         with torch.no_grad():
             next_q    = self.q_target(next_z)
             max_next  = next_q.max(1)[0]
@@ -358,7 +367,7 @@ class BioQAgent:
         target_q = target_q.detach()
         td_error  = target_q - current_q
 
-        # Feedforward predicted error
+        # Feedforward TD error, Line 6
         with torch.no_grad():
             z_pred = self.ctxbg.predict(z, action_t)
             next_q_pred = self.q_target(z_pred)
@@ -378,11 +387,42 @@ class BioQAgent:
             EPLHb_coeff = -torch.sigmoid(self.EPLHb_coeff)
             noise = torch.empty_like(td_error).uniform_(config['noise_min'], config['noise_max'])
             final_td_error = EPLHb_coeff * eplhb_out + noise * td_error
-        elif config['rule'] == 'PD':
-            # Use PD to modulate the TD-error
-            EPLHb_coeff = -torch.sigmoid(self.EPLHb_coeff)
-            noise = torch.empty_like(td_error).uniform_(config['noise_min'], config['noise_max'])
-            final_td_error = noise * td_error + EPLHb_coeff * delta_td
+        elif config['rule'] == 'PID':
+            # Line 8: gain updates
+            denom = self.running_BR + config['epsilon_gain']
+            # prod_pd = (td_error * td_error_pred).mean().item()
+            # prod_pi = (td_error * I_input).mean().item()
+            # prod_dq = (td_error * delta_q).mean().item()
+            # κp ← κp + η·(δ·δ') / denom
+            self.kp += config['eta_gain'] * (td_error * td_error_pred).mean().item() / denom
+            # κI ← κI + η·(δ·I_input) / denom
+            I_input = config['beta'] * z_pred.mean(dim=1) + config['alpha'] * td_error_pred
+            self.ki += config['eta_gain'] * (td_error * I_input).mean().item() / denom
+            # κd ← κd + η·(δ·ΔQ) / denom, where ΔQ = Q(s,a) − prev_Q
+            delta_q = (current_q.detach() - self.prev_q_val if self.prev_q_val is not None else torch.zeros_like(current_q))
+            self.kd += config['eta_gain'] * (td_error * delta_q).mean().item() / denom
+
+            # Line 9: Q value update
+            # proportional term
+            P_term = self.kp * td_error
+            # integral term input = β·z_pred + α·δ'
+            I_term  = self.ki * I_input
+            # derivative term
+            D_term = self.kd * delta_td
+            # combine P+I+D
+            combined = P_term + I_term + D_term
+            # Add optional noise
+            noise = torch.empty_like(combined).uniform_(config['noise_min'], config['noise_max'])
+            final_td_error = noise * combined
+
+            # Line 11: update params
+            # update running variance: running_BR ← (1−λ)·running_BR + λ·δ²
+            self.running_BR = (
+                (1.0 - config['lambda_BR']) * self.running_BR
+                + config['lambda_BR'] * td_error.detach().pow(2).mean().item()
+            )
+            self.prev_q_val = current_q.detach().clone() # save for next step
+
         else:
             # Use standard TD-error
             noise = torch.empty_like(td_error).uniform_(config['noise_min'], config['noise_max'])
