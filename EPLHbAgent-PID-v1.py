@@ -21,7 +21,9 @@ def seed_everything(seed=0):
 
 # ---------- Configuration Section ---------- #
 config = {
-    'render': False,                 # Toggle rendering
+    'render': True,                 # Toggle rendering
+    'env_name': "CartPole-v1",      # Environment name
+    # 'env_name': "CliffWalking-v0",   # Environment name (unfinished)
     'rules': ['PID'],           # List of rules to use
 
     'n_networks': 1,                 # Number of networks to train
@@ -51,13 +53,12 @@ config = {
     'tau': 1e-3,                     # Soft update coefficient (if used)
     'n_step': 1,                     # Number of steps for multi-step returns (1 is still the best)
 
-    'alpha': 0.1,                   # weight on δ′ inside the integral term
-    'beta': 0.5,                    # weight on z_pred inside the integral term
-    'eta_gain': 5e-8,               # step size η for adapting kp, ki, kd
-    'epsilon_gain': 1e-1,           # small ε to avoid div by zero in denom
-    'lambda_BR': 1e-2               # λ for running_BR update
+    'alpha': 0.05,                   # weight on δ′ inside the integral term
+    'beta': 0.95,                    # weight on z_pred inside the integral term
+    'eta_gain': 1e-7,                # step size η for adapting kp, ki, kd
+    'epsilon_gain': 1e-1,            # small ε to avoid div by zero in denom
+    'lambda_BR': 0.5,                # λ for running_BR update
 }
-
 seed_everything(0)
 
 # ---------- Utility Functions ---------- #
@@ -108,19 +109,18 @@ def plot_results(col, rule, n_networks=1):
     data_l = plot_dict[rule]['loss_histories']
     
     _, episodes = data_r.shape
-    xs = np.arange(episodes)
     fontsize = 8
 
     # Plot reward and loss histories
     ax0 = axs[col, 0]
     ax0.set_xlabel("Episode")
     ax0.set_ylabel("Total Reward", color='tab:blue')
-    plotSEM(np.arange(n_episodes), reward_histories, label='Reward', color='tab:blue', ax=ax0)
+    plotSEM(np.arange(n_episodes), data_r, label='Reward', color='tab:blue', ax=ax0)
     ax0.axhline(195, color='black', linestyle='--')
     ax0.tick_params(axis='y', labelcolor='tab:blue')
     ax1 = ax0.twinx()
     ax1.set_ylabel("Loss", color='tab:red')
-    plotSEM(np.arange(n_episodes), loss_histories, label='Loss', color='tab:red', ax=ax1)
+    plotSEM(np.arange(n_episodes), data_l, label='Loss', color='tab:red', ax=ax1)
     ax1.tick_params(axis='y', labelcolor='tab:red')
     ax0.set_title(f"Rule: {rule} | Avg reward: {np.mean(avg_reward):.2f}", fontsize=fontsize)
 
@@ -390,9 +390,6 @@ class BioQAgent:
         elif config['rule'] == 'PID':
             # Line 8: gain updates
             denom = self.running_BR + config['epsilon_gain']
-            # prod_pd = (td_error * td_error_pred).mean().item()
-            # prod_pi = (td_error * I_input).mean().item()
-            # prod_dq = (td_error * delta_q).mean().item()
             # κp ← κp + η·(δ·δ') / denom
             self.kp += config['eta_gain'] * (td_error * td_error_pred).mean().item() / denom
             # κI ← κI + η·(δ·I_input) / denom
@@ -446,10 +443,20 @@ class BioQAgent:
         }
 
 # ---------- Training Loop ---------- #
+def one_hot(s, n):
+    v = np.zeros(n, dtype=np.float32)
+    v[s] = 1.0
+    return v
+
 def train(env_name="CartPole-v1", episodes=500):
-    env = gym.make(env_name, render_mode="human" if config['render'] else None)
-    obs_dim = env.observation_space.shape[0]
+    env = gym.make(env_name)
+
+    is_discrete = isinstance(env.observation_space, gym.spaces.Discrete)
+    n_states = env.observation_space.n if is_discrete else None
+    obs_dim  = n_states if is_discrete else env.observation_space.shape[0]
     action_dim = env.action_space.n
+
+    # Initialize the agent
     agent = BioQAgent(obs_dim, action_dim)
     
     best_reward = -float('inf')
@@ -463,6 +470,8 @@ def train(env_name="CartPole-v1", episodes=500):
 
     for ep in range(1, episodes + 1):
         obs, _ = env.reset()
+        if is_discrete:
+            obs = one_hot(obs, n_states)
         done = False
         total_reward = 0
         agent.n_step_buffer.clear()
@@ -483,6 +492,8 @@ def train(env_name="CartPole-v1", episodes=500):
             # if ep % config['target_update_freq'] == 0:
             #     agent.update_target_network()
 
+            if is_discrete: 
+                next_obs = one_hot(next_obs, n_states)
             obs = next_obs
             total_reward += reward
         agent.finish_episode()
@@ -533,11 +544,17 @@ def train(env_name="CartPole-v1", episodes=500):
 if __name__ == "__main__":
 
     plot_dict = {}
+    best_reward = -float('inf')
+    best_model = None
+    best_model_rule = None
+    best_model_path = "checkpoints/best_model.pth"
+
+    n_networks = config['n_networks']
+    n_episodes = config['n_episodes']
+    env_name = config['env_name']
 
     for rule in config['rules']:
         config['rule'] = rule
-        n_networks = config['n_networks']
-        n_episodes = config['n_episodes']
 
         # Initialize history records
         avg_reward = np.zeros(n_networks)
@@ -549,14 +566,10 @@ if __name__ == "__main__":
         final_error_histories = np.zeros((n_networks, n_episodes))
         eplhb_histories = np.zeros((n_networks, n_episodes))
 
-        best_reward = -float('inf')
-        best_model = None
-        best_model_path = "checkpoints/best_model_" + rule + ".pth"
-
         for i in range(n_networks):
             print(f"Training network {i+1}/{n_networks} | Rule: {rule}")
             # Train the agent
-            agent, train_results = train(episodes=n_episodes)
+            agent, train_results = train(env_name=env_name, episodes=n_episodes)
             avg_reward[i] = np.mean(train_results['rewards'][-100:])
             reward_histories[i] = np.array(train_results['rewards'])
             loss_histories[i] = np.array(train_results['losses'])
@@ -570,6 +583,7 @@ if __name__ == "__main__":
             if avg_reward[i] > best_reward:
                 best_reward = avg_reward[i]
                 best_model = agent
+                best_model_rule = rule
                 if not os.path.exists("checkpoints"):
                     os.makedirs("checkpoints")
                 torch.save({
@@ -577,6 +591,8 @@ if __name__ == "__main__":
                     "q_net":    agent.q_net.state_dict(),
                     "q_target": agent.q_target.state_dict(),
                     "eplhb":    agent.eplhb.state_dict(),
+                    "rule":     rule,
+                    "avg_reward": avg_reward[i],
                 }, best_model_path)
                 print(f"Saved best model to {best_model_path}")
             print(f"Average reward for network {i+1}: {avg_reward[i]:.2f}")
@@ -616,48 +632,6 @@ if __name__ == "__main__":
     fig.tight_layout()
     plt.show()
 
-    # # Plot reward and loss histories for all networks with SEM on two y-axes
-    # ax0 = axs[0]
-    # ax0.set_xlabel("Episode")
-    # ax0.set_ylabel("Total Reward", color='tab:blue')
-    # plotSEM(np.arange(n_episodes), reward_histories, label='Reward', color='tab:blue', ax=ax0)
-    # ax0.axhline(195, color='black', linestyle='--')
-    # ax0.tick_params(axis='y', labelcolor='tab:blue')
-    # ax1 = ax0.twinx()
-    # ax1.set_ylabel("Loss", color='tab:red')
-    # plotSEM(np.arange(n_episodes), loss_histories, label='Loss', color='tab:red', ax=ax1)
-    # ax1.tick_params(axis='y', labelcolor='tab:red')
-    # ax0.set_title(f"Avg reward: {np.mean(avg_reward):.2f}")
-
-    # # Plot TD-errors
-    # ax2 = axs[1]
-    # ax2.set_xlabel("Episode")
-    # ax2.set_ylabel("Value")
-    # plotSEM(np.arange(n_episodes), td_error_histories, label='TD-error', color='tab:green', ax=ax2)
-    # plotSEM(np.arange(n_episodes), td_error_noised_histories, label='Noised TD-error', color='tab:orange', ax=ax2)
-    # plotSEM(np.arange(n_episodes), final_error_histories, label='Final TD-error', color='tab:purple', ax=ax2)
-    # ax2.legend(["TD error (raw)", "TD error (noised)","TD error (final)"])
-    # ax2.set_title("TD Errors Over Time")
-
-    # # Plot differences between TD error versions
-    # ax3 = axs[2]
-    # ax3.set_xlabel("Episode")
-    # ax3.set_ylabel("Value")
-    # plotSEM(np.arange(n_episodes), td_error_histories - td_error_noised_histories, label='TD-error - Noised TD-error', color='tab:olive', ax=ax3)
-    # plotSEM(np.arange(n_episodes), td_error_histories - final_error_histories, label='TD-error - Final TD-error', color='tab:pink', ax=ax3)
-    # ax3.legend(["TD error - Noised TD-error", "TD error - Final TD-error"])
-    # ax3.set_title("Differences Between TD Error Versions")
-
-    # ax4 = axs[3]
-    # ax4.set_xlabel("Episode")
-    # ax4.set_ylabel("Value")
-    # plotSEM(np.arange(n_episodes), delta_td_histories, label='Delta TD error', color='tab:purple', ax=ax4)
-    # plotSEM(np.arange(n_episodes), eplhb_histories, label='EPLHb Output', color='tab:green', ax=ax4)
-    # ax4.legend(["Delta TD error", "EPLHb Output"])
-    # ax4.set_title("Delta TD Error and EPLHb Output")
-    # fig.tight_layout()
-    # plt.show()
-
     # ─── 3) Render a few episodes with the “best” agent ────────────────────────
     if config['render']:
         render_env = gym.make("CartPole-v1", render_mode="human")
@@ -668,6 +642,9 @@ if __name__ == "__main__":
         agent.q_net.load_state_dict(ckpt["q_net"])
         agent.q_target.load_state_dict(ckpt["q_target"])
         agent.eplhb.load_state_dict(ckpt["eplhb"])
+        best_model_rule = ckpt["rule"]
+        best_model_avg_reward = ckpt["avg_reward"]
+        print(f"Loaded best model with avg reward {best_model_avg_reward:.2f} | Rule: {best_model_rule}")
         # set to eval mode
         agent.ctxbg.eval()
         agent.q_net.eval()

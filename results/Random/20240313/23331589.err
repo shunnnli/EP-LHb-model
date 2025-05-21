@@ -1,2 +1,0 @@
-/n/home04/shunnnli/.conda/envs/eplhbmodel/lib/python3.10/site-packages/torch/utils/_device.py:77: UserWarning: RNN module weights are not part of single contiguous chunk of memory. This means they need to be compacted at every call, possibly greatly increasing memory usage. To compact weights again call flatten_parameters(). (Triggered internally at ../aten/src/ATen/native/cudnn/RNN.cpp:982.)
-  return func(*args, **kwargs)
