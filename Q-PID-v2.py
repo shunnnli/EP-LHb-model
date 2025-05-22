@@ -34,7 +34,7 @@ def plotSEM(x, y, label=None, color=None, ax=None, alpha=0.2):
 
 # ─── 4) Instantiate environment, policy, and two agents ──────────────────
 env_name = "cliff walk"
-seed = 0
+seed = 2388
 env, policy = get_env_policy(env_name, seed)
 
 # Common hyper‐params from Figure 7 (control experiments)
@@ -49,6 +49,11 @@ beta  = 0.95
 lr_P = learning_rate_function(alpha, float("inf"))  # constant α
 lr_I = learning_rate_function(alpha, float("inf"))
 lr_D = learning_rate_function(alpha, float("inf"))
+
+# optimal_rates = (0.1, float("inf"), 0.1, float("inf"), 0, float("inf"))
+# lr_P = learning_rate_function(optimal_rates[0], optimal_rates[1])
+# lr_I = learning_rate_function(optimal_rates[2], optimal_rates[3])
+# lr_D = learning_rate_function(optimal_rates[4], optimal_rates[5])
 
 # 4a) pure‐Q‐Learning baseline
 agent_q = PID_TD(
