@@ -8,7 +8,8 @@ repo_path = os.path.abspath("./PID-Accelerated-TD-Learning")
 import sys
 if repo_path not in sys.path:
     sys.path.insert(0, repo_path)
-from TabularPID.MDPs.GymWrapper import create_environment
+
+from TabularPID.AgentBuilders.EnvBuilder import get_env_policy
 from TabularPID.MDPs.Policy    import Policy
 from TabularPID.Agents.Agents  import ControlledQLearning, PID_TD, learning_rate_function
 
@@ -30,72 +31,11 @@ def plotSEM(x, y, label=None, color=None, ax=None, alpha=0.2):
     ax.fill_between(x, mean - std, mean + std, alpha=alpha, color=color,
                      edgecolor='None', label='_nolegend_')
 
-# ─── 3) Wrap Gym’s CliffWalking-v0 to match their Agent API ──────────────
-class GymCliffEnv:
-    def __init__(self, seed=0):
-        self.env = gym.make("CliffWalking-v1", render_mode=None, is_slippery=True)
-        self.num_states  = self.env.observation_space.n
-        self.num_actions = self.env.action_space.n
-        self.prg = np.random.RandomState(seed)
-
-    def reset(self):
-        obs, _ = self.env.reset()
-        self.current_state = obs
-        return obs
-
-    def take_action(self, action):
-        next_s, reward, done, truncated, info = self.env.step(action)
-        # reward = max(reward, -1.0)
-        self.current_state = next_s
-        return next_s, reward
-
-    def set_seed(self, seed):
-        self.env.reset(seed=seed)
-        self.prg.seed(seed)
-
-    def build_reward_matrix(self):
-        """
-        Return R[s,a] = E[r | s,a] as a (S, A) array.
-        """
-        Pdict = self.env.unwrapped.P
-        S, A   = self.num_states, self.num_actions
-
-        R = np.zeros((S, A), dtype=np.float32)
-        for s in range(S):
-            for a, outcomes in Pdict[s].items():
-                # sum over all possible next‐states
-                for (prob, s2, r, done) in outcomes:
-                    R[s, a] += prob * r
-        return R
-
-    def build_probability_transition_kernel(self):
-        """Return P[s,s',a] = Pr(s'|s,a) as a (S, S, A) array."""
-        Pdict = self.env.unwrapped.P
-        S, A   = self.num_states, self.num_actions
-
-        # temporary P[s,a,s']
-        tmp = np.zeros((S, A, S), dtype=np.float32)
-        for s in range(S):
-            for a, outcomes in Pdict[s].items():
-                for (prob, s2, r, done) in outcomes:
-                    tmp[s, a, s2] = prob
-
-        # now permute axes → (S, S, A)
-        return tmp.transpose(0, 2, 1)
-
-
 
 # ─── 4) Instantiate environment, policy, and two agents ──────────────────
-env = GymCliffEnv(seed=0)
-# env, policy = create_environment(
-#     env_name="CliffWalking-v0",
-#     success_prob=0.9,      # slip 10% of the time
-#     reward_clipping=False, # leave their original –32, –16, etc.
-#     seed=0,
-# )
-
-# 2) Construct their Policy object over that MDP
-policy = Policy(env.num_actions, env.num_states, env.prg, None)
+env_name = "cliff walk"
+seed = 0
+env, policy = get_env_policy(env_name, seed)
 
 # Common hyper‐params from Figure 7 (control experiments)
 gamma = 0.99
@@ -146,39 +86,50 @@ kp_hist_pid = np.zeros((n_runs, max_steps))
 ki_hist_pid = np.zeros((n_runs, max_steps))
 kd_hist_pid = np.zeros((n_runs, max_steps))
 
-def make_value_error_test(env, agent=None):
-    # We’ll compare max_a Q(s,a) to the true V*(s) under “always‐right” policy.
-    # Compute V_true by synchronous policy evaluation:
-    raw = env.env.unwrapped
-    # build deterministic “always‐right” policy
-    optimal_pi = {
-        s: max(raw.P[s].keys(),
-               key=lambda a: sum(p*(r+gamma*0) for (p,_,r,_) in raw.P[s][a]))
-        for s in range(env.num_states)
-    }
-    # policy‐evaluation
-    V = np.zeros(env.num_states)
+def make_value_error_test(env, agent=None, gamma=gamma):
+    """
+    Returns a test_fn(Q, Qp, BR) which computes
+      ‖V_t - V*‖_1 / ‖V*‖_1
+    for the deterministic “always-right” policy, where V* is found by
+    synchronous policy‐evaluation on the true MDP.
+    """
+    # 1) pull out the full transition and reward arrays
+    #    P[s, s2, a] = Pr(s→s2 | a),  R[s, a] = E[r | s, a]
+    P_full = env.build_probability_transition_kernel()
+    R_full = env.build_reward_matrix()
+    nS, _, nA = P_full.shape
+
+    # 2) build the “always-right” policy by choosing the action
+    #    with highest immediate reward R[s,a] at each state
+    optimal_pi = { s: int(np.argmax(R_full[s])) for s in range(nS) }
+
+    # 3) synchronous policy-evaluation to find V*
+    V = np.zeros(nS)
     while True:
-        δ_max = 0
-        for s in range(env.num_states):
+        delta = 0.0
+        for s in range(nS):
             a = optimal_pi[s]
-            v_new = sum(
-                p * (r + gamma * V[s2] * (1-d))
-                for (p, s2, r, d) in raw.P[s][a]
-            )
-            δ_max = max(δ_max, abs(v_new - V[s]))
+            v_new = R_full[s, a] + gamma * np.dot(P_full[s, :, a], V)
+            delta = max(delta, abs(v_new - V[s]))
             V[s] = v_new
-        if δ_max < 1e-6:
+        if delta < 1e-6:
             break
+
     V_norm = np.linalg.norm(V, ord=1)
+
+    # 4) build the test function for your runs
     def test_fn(Q, Qp, BR):
+        # record gains if desired
         if agent is not None:
             agent.kp_history.append(agent.kp)
             agent.ki_history.append(agent.ki)
             agent.kd_history.append(agent.kd)
+        # compute current estimate V_t(s) = max_a Q(s,a)
         Vt = Q.max(axis=1)
         return np.linalg.norm(Vt - V, ord=1) / V_norm
+
     return test_fn
+
 
 test_fn_q = make_value_error_test(env,agent=agent_q)
 test_fn_pid = make_value_error_test(env,agent=agent_pid)
@@ -238,8 +189,8 @@ fig, (ax_err, ax_kp, ax_ki, ax_kd) = plt.subplots(
 ts = np.arange(max_steps)
 
 # 1) main error curves
-plotSEM(ts, hist_q,   label="Q-Learning", color="tab:blue",   ax=ax_err)
-plotSEM(ts, hist_pid,  label="PID-Accelerated Q", color="tab:orange", ax=ax_err)
+plotSEM(ts, hist_q,   label="TD-Learning", color="tab:blue",   ax=ax_err)
+plotSEM(ts, hist_pid,  label="PID-Accelerated TD", color="tab:orange", ax=ax_err)
 ax_err.set_xlabel("Steps (t)")
 ax_err.set_ylabel(r"Normalized $\|V_t - V^*\|_1$")
 ax_err.set_title("Value‐Error Over Time")
@@ -247,7 +198,7 @@ ax_err.legend(loc="upper right")
 ax_err.grid(True)
 
 # 2) Kp subplot
-plotSEM(ts, kp_hist_q,   label="Q Kp",   color="tab:blue", ax=ax_kp)
+plotSEM(ts, kp_hist_q,   label="TD Kp",   color="tab:blue", ax=ax_kp)
 plotSEM(ts, kp_hist_pid, label="PID Kp", color="tab:orange", ax=ax_kp)
 ax_kp.set_title("Kp (Proportional Gain)")
 ax_kp.set_xlabel("Steps")
@@ -255,7 +206,7 @@ ax_kp.set_yticks([0.0, 0.5, 1.0, 1.5])
 ax_kp.legend()
 
 # 3) Ki subplot
-plotSEM(ts, ki_hist_q,   label="Q Ki",   color="tab:blue", ax=ax_ki)
+plotSEM(ts, ki_hist_q,   label="TD Ki",   color="tab:blue", ax=ax_ki)
 plotSEM(ts, ki_hist_pid, label="PID Ki", color="tab:orange", ax=ax_ki)
 ax_ki.set_title("Ki (Integral Gain)")
 ax_ki.set_xlabel("Steps")
@@ -263,7 +214,7 @@ ax_ki.set_yticks([0.0, 0.5, 1.0])
 ax_ki.legend()
 
 # 4) Kd subplot
-plotSEM(ts, kd_hist_q,   label="Q Kd",   color="tab:blue", ax=ax_kd)
+plotSEM(ts, kd_hist_q,   label="TD Kd",   color="tab:blue", ax=ax_kd)
 plotSEM(ts, kd_hist_pid, label="PID Kd", color="tab:orange", ax=ax_kd)
 ax_kd.set_title("Kd (Derivative Gain)")
 ax_kd.set_xlabel("Steps")
