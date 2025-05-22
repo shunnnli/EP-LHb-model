@@ -3,6 +3,7 @@ import numpy as np
 import random
 from collections import deque, namedtuple
 import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
 
 import torch
 import torch.nn as nn
@@ -61,6 +62,9 @@ omission_prob    = 0.1
 enl_duration     = (1.0, 3.0)  # seconds
 action_cost      = 0.1
 enl_penalty      = 0.1
+
+tau_on  = 0.01   # 10 ms
+tau_off = 0.1    # 100 ms
 
 # --------------------
 # 4) Setup
@@ -208,6 +212,16 @@ tds   = np.array(all_tds)
 dt = 0.1
 t_axis = np.linspace(-pre_steps*dt, (max_trial_steps-pre_steps)*dt, max_trial_steps)
 
+# build DA kernel
+t_kernel = np.arange(0, 1.0, dt)  # 0–1 s
+kernel = np.exp(-t_kernel/tau_off) - np.exp(-t_kernel/tau_on)
+kernel /= np.sum(kernel)  # normalize area to 1
+# convolve with DA kernel
+DAs = np.stack([
+    np.convolve(trial_tds, kernel, mode='full')[:tds.shape[1]]
+    for trial_tds in tds
+], axis=0)
+
 def plotSEM(x, y, label=None, color=None, ax=None, alpha=0.2):
     """Plot with shaded error margin."""
     if ax is None:
@@ -222,13 +236,8 @@ def plotSEM(x, y, label=None, color=None, ax=None, alpha=0.2):
     ax.plot(x, mean, label=label, color=color)
     ax.fill_between(x, mean - std, mean + std, alpha=alpha, color=color,
                      edgecolor='None', label='_nolegend_')
-    
 
-import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
-
-# assume: reward_history, loss_history, licks, tds, t_axis, num_trials, plotSEM are defined
-
+# Plotting
 fig = plt.figure(figsize=(18, 10))
 gs  = GridSpec(2, 3, figure=fig, width_ratios=[1, 1, 1.2], wspace=0.2, hspace=0.3)
 
@@ -260,11 +269,10 @@ ax2.set_ylabel("Trial")
 ax2.set_xlim(t_axis[0], t_axis[-1])
 ax2.set_ylim(0.5, num_trials+1)
 
-# bottom‐middle: Mean + individual TD
+# bottom‐middle: average TD error + simulated DA signal
 ax3 = fig.add_subplot(gs[1, 1])
 plotSEM(t_axis, tds, label="TD Error", color='tab:blue', ax=ax3, alpha=0.2)
-for i in range(num_trials):
-    ax3.plot(t_axis, tds[i], color='tab:blue', alpha=0.1)
+plotSEM(t_axis, DAs, label="DA Signal", color='tab:green', ax=ax3, alpha=0.2)
 # shade cue
 ymin, ymax = ax3.get_ylim()
 ax3.fill_betweenx([ymin, ymax], 0, 0.5, color='tab:orange', alpha=0.2, edgecolor='None')
@@ -272,6 +280,7 @@ ax3.set_ylim(ymin, ymax)
 ax3.set_title("TD error vs time")
 ax3.set_xlabel("Time (s)")
 ax3.set_ylabel("TD Error")
+ax3.legend(loc='upper left', fontsize=10, frameon=False)
 
 # the new heatmap, spanning both rows in column 3
 ax_heat = fig.add_subplot(gs[:, 2])
