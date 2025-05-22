@@ -58,7 +58,7 @@ post_steps       = 30    # 5 s @ 100 ms
 max_trial_steps  = pre_steps + post_steps
 
 omission_prob    = 0.1
-enl_duration     = (1.0, 2.0)  # seconds
+enl_duration     = (1.0, 3.0)  # seconds
 action_cost      = 0.1
 enl_penalty      = 0.1
 
@@ -235,14 +235,14 @@ gs  = GridSpec(2, 3, figure=fig, width_ratios=[1, 1, 1.2], wspace=0.2, hspace=0.
 # top‐left: Reward per trial
 ax0 = fig.add_subplot(gs[0, 0])
 ax0.plot(reward_history)
-ax0.set_title("Reward per Trial")
+ax0.set_title("Reward per trial")
 ax0.set_xlabel("Trial")
 ax0.set_ylabel("Total Reward")
 
 # top‐middle: Loss per trial
 ax1 = fig.add_subplot(gs[0, 1])
 ax1.plot(loss_history)
-ax1.set_title("Loss per Trial")
+ax1.set_title("Loss per trial")
 ax1.set_xlabel("Trial")
 ax1.set_ylabel("MSE Loss")
 
@@ -254,7 +254,7 @@ for i in range(num_trials):
                 color='tab:pink', s=20, marker='o', alpha=0.8, edgecolor='none')
 # mark cue window
 ax2.fill_betweenx([0, num_trials+1], 0, 0.5, color='tab:orange', alpha=0.2, edgecolor='None')
-ax2.set_title("Lick Raster")
+ax2.set_title("Lick raster")
 ax2.set_xlabel("Time (s)")
 ax2.set_ylabel("Trial")
 ax2.set_xlim(t_axis[0], t_axis[-1])
@@ -269,7 +269,7 @@ for i in range(num_trials):
 ymin, ymax = ax3.get_ylim()
 ax3.fill_betweenx([ymin, ymax], 0, 0.5, color='tab:orange', alpha=0.2, edgecolor='None')
 ax3.set_ylim(ymin, ymax)
-ax3.set_title("TD Error vs Time")
+ax3.set_title("TD error vs time")
 ax3.set_xlabel("Time (s)")
 ax3.set_ylabel("TD Error")
 
