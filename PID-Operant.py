@@ -59,8 +59,8 @@ max_trial_steps  = pre_steps + post_steps
 
 omission_prob    = 0.1
 enl_duration     = (1.0, 2.0)  # seconds
-enl_penalty      = -0.1
-cue_reward       = 0.0
+action_cost      = 0.1
+enl_penalty      = 0.1
 
 # --------------------
 # 4) Setup
@@ -69,8 +69,9 @@ env = OperantLearning(
     pairing=pairing,
     omission_prob=omission_prob,
     enl_duration=enl_duration,
+    action_cost=action_cost,
     enl_penalty=enl_penalty,
-    cue_reward=cue_reward,
+    detection_delay=1,
 )
 state_dim = env.observation_space.shape[0]
 action_dim = env.action_space.n
@@ -122,8 +123,9 @@ while trial < num_trials:
                 a = qvals.argmax().item()
 
         next_obs, r, _, _, info = env.step(a)
+        # print(f"Action: {a}\tReward: {r}\tInfo: {info}")
         next_state = torch.tensor(next_obs, dtype=torch.float32)
-        done = info.get("trial_type") is not None
+        done = info.get("done")
         total_reward += r
 
         # compute TD error
@@ -222,46 +224,70 @@ def plotSEM(x, y, label=None, color=None, ax=None, alpha=0.2):
                      edgecolor='None', label='_nolegend_')
     
 
-fig, axes = plt.subplots(2, 2, figsize=(10, 8))
-# Reward history
-axes[0,0].plot(reward_history)
-axes[0,0].set_title("Reward per trial")
-axes[0,0].set_xlabel("Trial")
-axes[0,0].set_ylabel("Total Reward")
+import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
 
-# Loss history
-axes[0,1].plot(loss_history)
-axes[0,1].set_title("Loss per trial")
-axes[0,1].set_xlabel("Trial")
-axes[0,1].set_ylabel("MSE Loss")
+# assume: reward_history, loss_history, licks, tds, t_axis, num_trials, plotSEM are defined
 
-# Lick raster
+fig = plt.figure(figsize=(18, 10))
+gs  = GridSpec(2, 3, figure=fig, width_ratios=[1, 1, 1.2], wspace=0.2, hspace=0.3)
+
+# top‐left: Reward per trial
+ax0 = fig.add_subplot(gs[0, 0])
+ax0.plot(reward_history)
+ax0.set_title("Reward per Trial")
+ax0.set_xlabel("Trial")
+ax0.set_ylabel("Total Reward")
+
+# top‐middle: Loss per trial
+ax1 = fig.add_subplot(gs[0, 1])
+ax1.plot(loss_history)
+ax1.set_title("Loss per Trial")
+ax1.set_xlabel("Trial")
+ax1.set_ylabel("MSE Loss")
+
+# bottom‐left: Lick raster (scatter)
+ax2 = fig.add_subplot(gs[1, 0])
 for i in range(num_trials):
     lick_times = t_axis[licks[i] == 1]
-    axes[1,0].scatter(lick_times, np.ones_like(lick_times)*(i+1),
-                       s=10, marker='o', alpha=0.6)
-# Fill to indicate cue
-axes[1,0].fill_betweenx([0, num_trials], 0, 0.5, color='tab:orange', alpha=0.2, edgecolor='None')
-axes[1,0].set_ylim(0, num_trials)
-axes[1,0].set_title("Lick Raster")
-axes[1,0].set_xlabel("Time (s)")
-axes[1,0].set_ylabel("Trial")
-axes[1,0].set_xlim(t_axis[0], t_axis[-1])
-axes[1,0].set_ylim(0.5, num_trials + 0.5)
+    ax2.scatter(lick_times, np.ones_like(lick_times)*(i+1),
+                color='tab:pink', s=20, marker='o', alpha=0.8, edgecolor='none')
+# mark cue window
+ax2.fill_betweenx([0, num_trials+1], 0, 0.5, color='tab:orange', alpha=0.2, edgecolor='None')
+ax2.set_title("Lick Raster")
+ax2.set_xlabel("Time (s)")
+ax2.set_ylabel("Trial")
+ax2.set_xlim(t_axis[0], t_axis[-1])
+ax2.set_ylim(0.5, num_trials+1)
 
-# Mean TD error
-plotSEM(t_axis, tds, label="TD Error", color='tab:blue', ax=axes[1,1], alpha=0.2)
-# Plot individual TD errors
+# bottom‐middle: Mean + individual TD
+ax3 = fig.add_subplot(gs[1, 1])
+plotSEM(t_axis, tds, label="TD Error", color='tab:blue', ax=ax3, alpha=0.2)
 for i in range(num_trials):
-    axes[1,1].plot(t_axis, tds[i], color='tab:blue', alpha=0.1)
-# Get the y limits of the axes
-y_min, y_max = axes[1,1].get_ylim()
-# Fill the area between the y limits
-axes[1,1].fill_betweenx([y_min, y_max], 0, 0.5, color='tab:orange', alpha=0.2, edgecolor='None')
-axes[1,1].set_ylim(y_min, y_max)
-axes[1,1].set_title("TD Error vs Time")
-axes[1,1].set_xlabel("Time (s)")
-axes[1,1].set_ylabel("TD Error")
+    ax3.plot(t_axis, tds[i], color='tab:blue', alpha=0.1)
+# shade cue
+ymin, ymax = ax3.get_ylim()
+ax3.fill_betweenx([ymin, ymax], 0, 0.5, color='tab:orange', alpha=0.2, edgecolor='None')
+ax3.set_ylim(ymin, ymax)
+ax3.set_title("TD Error vs Time")
+ax3.set_xlabel("Time (s)")
+ax3.set_ylabel("TD Error")
 
-plt.tight_layout()
+# the new heatmap, spanning both rows in column 3
+ax_heat = fig.add_subplot(gs[:, 2])
+im = ax_heat.imshow(
+    tds,
+    aspect='auto',
+    interpolation='nearest',
+    extent=[t_axis[0], t_axis[-1], num_trials, 1],
+    cmap='coolwarm',
+)
+ax_heat.set_title("TD Error Heatmap")
+ax_heat.set_xlabel("Time (s)")
+ax_heat.set_ylabel("Trial")
+ax_heat.invert_yaxis()   # so Trial 1 is at top
+cbar = fig.colorbar(im, ax=ax_heat, orientation='vertical', label='TD Error')
+
+# Tighten layout and show
+fig.subplots_adjust(left=0.05, right=0.98, top=0.95, bottom=0.07)
 plt.show()
