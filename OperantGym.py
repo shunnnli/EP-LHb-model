@@ -12,10 +12,19 @@ class OperantLearning(gym.Env):
       - Small outcome delivered at end of 2s if <2 licks
       - Omission trials: no outcome (reward/punishment) delivered based on omission_prob
     """
+
+    # Fake rendering mode for compatibility with SB3
+    # (not actually rendering anything)
+    metadata = {
+        "render_modes": ["rgb_array", "human"],
+        "render_fps": 30,
+    }
+
     def __init__(self, pairing='reward', omission_prob: float = 0.0, 
                  enl_duration: tuple[float, float] = (2.0, 4.0),
                  action_cost: float = 0.1, enl_penalty: float = 0.01,
-                 detection_delay: int = 0,):
+                 detection_delay: int = 0,
+                 render_mode: str = None):
         super().__init__()
         # Actions: 0 = no lick, 1 = lick
         self.action_space = spaces.Discrete(2)
@@ -48,6 +57,10 @@ class OperantLearning(gym.Env):
         self.last_trial_info = None
         self.outcome_type = None
 
+        # Fake render mode
+        self.render_mode = render_mode
+        self._screen = None
+
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.phase = 0
@@ -69,6 +82,32 @@ class OperantLearning(gym.Env):
         # noisy_time = np.clip(noisy_time, 0, self.max_time)
         return np.array([self.phase, self.cue_on], dtype=int)
 
+    def _reset_trial(self):
+        """Reset internal state for next trial after outcome delivery."""
+        self.phase = 0
+        self.time = 0
+        self.enl_duration = np.random.randint(20, 40)
+        self.lick_buffer = []
+        self.cue_on = 0
+        self.omission_trial = (np.random.rand() < self.omission_prob)
+        self.outcome_type = None
+        # clear reward buffer
+        self._pending_reset_steps = 0
+        self._reward_buffer.clear()
+        self._reward_buffer.extend([0]*self.detection_delay)
+
+    def render(self, mode='human'):
+        if self.render_mode == "rgb_array":
+            # return a dummy image or your real frame
+            if self._screen is None:
+                h, w = 400, 400
+                self._screen = np.zeros((h, w, 3), dtype=np.uint8)
+            return self._screen
+        elif self.render_mode == "human":
+            print("Rendering (human mode)")
+        else:
+            return None
+
     def step(self, action):
         reward = 0
         terminated = False
@@ -87,10 +126,12 @@ class OperantLearning(gym.Env):
                 reward -= self.enl_penalty
                 info = {
                     "lick": 1,
-                    "reward": reward,
-                    "done": False,
+                    "cue": self.cue_on,
+                    "done": True,
                     "outcome": "enl_break",
                 }
+                self._reset_trial()
+                # print("     ENL reset")
             else:
                 self.time += 1
                 if self.time >= self.enl_duration:
@@ -99,7 +140,20 @@ class OperantLearning(gym.Env):
                     self.time = 0
                     self.lick_buffer = []
                     self.cue_on = 1
+                    info = {
+                        "lick": 0,
+                        "cue": self.cue_on,
+                        "done": False,
+                        "outcome": "trial_start",
+                    }
                     print("     Cue ON")
+                else:
+                    info = {
+                        "lick": len(self.lick_buffer),
+                        "cue": self.cue_on,
+                        "done": False,
+                        "outcome": "enl_ongoing",
+                    }
                     
         else:
             # Response phase: collect licks and time
@@ -119,7 +173,7 @@ class OperantLearning(gym.Env):
                     reward += outcome
                     info = {
                         "lick": len(self.lick_buffer),
-                        "reward": reward,
+                        "cue": self.cue_on,
                         "done": False,
                         "outcome": "omission" if self.omission_trial else self.outcome_type,
                     }
@@ -138,7 +192,7 @@ class OperantLearning(gym.Env):
                     reward += outcome
                     info = {
                         "lick": len(self.lick_buffer),
-                        "reward": reward,
+                        "cue": self.cue_on,
                         "done": False,
                         "outcome": "omission" if self.omission_trial else self.outcome_type,
                     }
@@ -149,17 +203,25 @@ class OperantLearning(gym.Env):
                         self._reset_trial()
                     print("     Small outcome delivered")
 
+            else:
+                info = {
+                    "lick": len(self.lick_buffer),
+                    "cue": self.cue_on,
+                    "done": False,
+                    "outcome": "cue_on",
+                }
+
         # Fill placeholders if no outcome yet
         if not info:
             info = {
                 "lick": len(self.lick_buffer),
-                "reward": 0,
+                "cue": self.cue_on,
                 "done": False,
                 "outcome": self.outcome_type,
             }
         
         # implement detection delay: buffer raw_reward before returning
-        if self.detection_delay > 0:
+        if self.detection_delay > 0 and info["outcome"] != "enl_break":
             # buffer raw reward
             self._reward_buffer.append(reward)
             # pop oldest (which occurred detection_delay steps ago)
@@ -170,7 +232,7 @@ class OperantLearning(gym.Env):
                 if self._pending_reset_steps == 0:
                     info = {
                         "lick": len(self.lick_buffer),
-                        "reward": reward,
+                        "cue": self.cue_on,
                         "done": True,
                         "outcome": "trial_end",
                     }
@@ -180,16 +242,4 @@ class OperantLearning(gym.Env):
 
         return self._get_obs(), final_reward, terminated, truncated, info
 
-    def _reset_trial(self):
-        """Reset internal state for next trial after outcome delivery."""
-        self.phase = 0
-        self.time = 0
-        self.enl_duration = np.random.randint(20, 40)
-        self.lick_buffer = []
-        self.cue_on = 0
-        self.omission_trial = (np.random.rand() < self.omission_prob)
-        self.outcome_type = None
-        # clear reward buffer
-        self._pending_reset_steps = 0
-        self._reward_buffer.clear()
-        self._reward_buffer.extend([0]*self.detection_delay)
+    
