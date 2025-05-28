@@ -45,7 +45,7 @@ class OnlineReplayBuffer(PIDReplayBuffer):
 # Hyperparameters
 # --------------------
 pairing          = 'reward'
-num_trials       = 50
+num_trials       = 200
 pre_steps        = 20    # 1 s @ 100 ms
 post_steps       = 30    # 5 s @ 100 ms
 max_trial_steps  = pre_steps + post_steps
@@ -183,6 +183,11 @@ new_logger = configure(None, ["stdout"])
 model.set_logger(new_logger)
 recorder = SessionRecorder()
 
+# epsilon decay params
+eps_start    = pid_params["initial_eps"]
+eps_end      = pid_params["minimum_eps"]
+decay_trials = int(pid_params["exploration_fraction"] * num_trials)
+
 # --------------------
 # Training Loop
 # --------------------
@@ -192,6 +197,12 @@ trial_idx = 0
 
 while trial_idx < num_trials:
     print(f"Trial {trial_idx + 1}/{num_trials}")
+    # compute trial-based epsilon
+    frac = min(1.0, trial_idx / max(1, decay_trials))
+    eps  = eps_start + frac * (eps_end - eps_start)
+    model.exploration_rate = eps
+    model.logger.record("rollout/exploration_rate", eps)
+    print(f"Trial {trial_idx+1}/{num_trials}, ε={eps:.3f}")
 
     # 1) roll out one trial
     trial_transitions = []
@@ -260,7 +271,7 @@ kd_history = np.array(recorder.kd)
 update_history = kp_history * p_history + ki_history * i_history + kd_history * d_history
 
 # Align licks and TD errors to the cue
-error = update_history
+error = td_errors
 cue_licks = get_traces(licks, tones, pre_steps, post_steps)
 cue_error   = get_traces(error, tones, pre_steps, post_steps)
 

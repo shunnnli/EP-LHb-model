@@ -169,6 +169,7 @@ class SessionRecorderCallback(BaseCallback):
         info   = infos[0]   if isinstance(infos, list)          else infos
 
         # 1) compute TD error
+        done = int(info.get("done", False)) 
         td = 0.0
         if self._prev_obs is not None:
             # turn to torch tensors
@@ -179,7 +180,7 @@ class SessionRecorderCallback(BaseCallback):
                 q_cur  = self.model.q_net(obs_t)[0, action]
                 # max_a' Q_target(next, a')
                 q_next = self.model.q_net_target(next_obs_t).max(dim=1)[0]
-                td = (reward + self.model.gamma * q_next - q_cur).item()
+                td     = (reward + (1 - done) * self.model.gamma * q_next - q_cur).item()
         self._prev_obs = new_obs
 
         # 2) binary lick flag
