@@ -5,11 +5,9 @@ if repo_path not in sys.path:
     sys.path.insert(0, repo_path)
 # from TabularPID.AgentBuilders.DQNBuilder import build_PID_DQN
 from stable_baselines3.common.logger import configure
-from stable_baselines3.common.buffers import ReplayBuffer as PIDReplayBuffer
+from stable_baselines3.common.buffers import OnlineReplayBuffer
 from TabularPID.Agents.DQN.DQN import PID_DQN
 from TabularPID.Agents.DQN.DQN_gain_adapter import NoGainAdapter, SingleGainAdapter, DiagonalGainAdapter, NetworkGainAdapter
-from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.callbacks import BaseCallback, CallbackList
 
 import numpy as np
 import random
@@ -23,22 +21,7 @@ import torch.optim as optim
 
 from OperantGym import OperantLearning
 from plotfunctions import plot_figure, get_traces
-from recorder import SessionRecorder, TrialLimitCallback
-
-
-# Replay buffer to do online updates
-class OnlineReplayBuffer(PIDReplayBuffer):
-    """
-    A replay buffer that only ever returns the most recent transition
-    (i.e. batch_size = 1, sample = last added element).
-    """
-    def sample(self, batch_size: int = 1, env=None):
-        # ignore batch_size; we always return the single last transition
-        # pos points at the *next* insertion index, so last = (pos - 1) mod buffer_size
-        last_idx = (self.pos - 1) % self.buffer_size
-        # single env => env_index = 0
-        batch_inds = np.array([last_idx])
-        return self._get_samples(batch_inds, env=env)
+from recorder import SessionRecorder
 
 
 # --------------------
@@ -46,8 +29,8 @@ class OnlineReplayBuffer(PIDReplayBuffer):
 # --------------------
 pairing          = 'reward'
 num_trials       = 200
-pre_steps        = 20    # 1 s @ 100 ms
-post_steps       = 30    # 5 s @ 100 ms
+pre_steps        = 10    # 1 s @ 100 ms
+post_steps       = 40    # 5 s @ 100 ms
 max_trial_steps  = pre_steps + post_steps
 
 omission_prob    = 0.0
@@ -58,10 +41,14 @@ enl_penalty      = 0.1
 tau_on  = 0.01   # 10 ms
 tau_off = 0.1    # 100 ms
 
+gradient_steps = 10  # how many gradient steps to do per trial
+gamma = 0.95  # discount factor for the DQN
+n_step_td = 20  # n-step TD learning
+
 batch_training = False
 batch_size = 64 if batch_training else 1
 buffer_size = 100000 if batch_training else 1
-replaybuffer = PIDReplayBuffer if batch_training else OnlineReplayBuffer
+replaybuffer = OnlineReplayBuffer
 
 
 # PID-DQN parameters
@@ -78,9 +65,9 @@ pid_params = {
     "replay_memory_size": buffer_size,
     "batch_size": batch_size,
     "tau": 1e-3,                # Polyak update coefficient
-    "gamma": 0.9,              # discount factor
-    "gradient_steps": 0,
-    "train_freq": int(1e9),
+    "gamma": gamma,              # discount factor
+    "gradient_steps": 1,
+    "train_freq": 1,
     "target_update_interval": 1000,
 
     'meta_lr': 1e-3,           # meta-learning rate for gains
@@ -109,7 +96,6 @@ env = OperantLearning(
     enl_penalty=enl_penalty,
     detection_delay=1,
 )
-# env = Monitor(env)  
 
 # Gain adapter
 gain_adapter = SingleGainAdapter(
@@ -126,7 +112,7 @@ gain_adapter = SingleGainAdapter(
 policy_kwargs = dict(
     net_arch=[pid_params["inner_size"], pid_params["inner_size"]],
     optimizer_class=optim.Adam,
-    with_RNN_layer = True,
+    with_RNN_layer=True,
 )
 
 # Prevent CUDA from being used (patch)
@@ -188,6 +174,16 @@ eps_start    = pid_params["initial_eps"]
 eps_end      = pid_params["minimum_eps"]
 decay_trials = int(pid_params["exploration_fraction"] * num_trials)
 
+# Set up buffer
+model.replay_buffer = OnlineReplayBuffer(
+    buffer_size=10_000, # hold the last 10 000 steps (ie 1000 seconds)
+    observation_space=env.observation_space,
+    action_space=env.action_space,
+    device=model.device,
+    optimize_memory_usage=False,
+    handle_timeout_termination=True,
+)
+
 # --------------------
 # Training Loop
 # --------------------
@@ -197,6 +193,10 @@ trial_idx = 0
 
 while trial_idx < num_trials:
     print(f"Trial {trial_idx + 1}/{num_trials}")
+    # reset the LSTM here so it doesn’t leak from the last trial
+    z_prev = 0.0
+    model.policy.q_net.reset_hidden(batch_size=batch_size)
+
     # compute trial-based epsilon
     frac = min(1.0, trial_idx / max(1, decay_trials))
     eps  = eps_start + frac * (eps_end - eps_start)
@@ -209,40 +209,82 @@ while trial_idx < num_trials:
     done = False
 
     while not done:
+        # act
         action, _ = model.predict(obs, deterministic=False)
         next_obs, reward, _, _, info = env.step(action)
         done = info["done"]
         outcome = info["outcome"]
         # print(f"Reward: {reward}, Info: {info}")
+
         # store transition
         trial_transitions.append((obs, action, next_obs, reward, done, info))
-        obs = next_obs
+        
+        # calculate d and z updates
+        with torch.no_grad():
+            # make observation tensor
+            obs_t = torch.tensor(obs, device=model.device, dtype=torch.float32).unsqueeze(0) # [1, obs_dim]
+            next_t = torch.tensor(next_obs, device=model.device, dtype=torch.float32).unsqueeze(0) # [1, obs_dim]
+            # get the D update
+            if model.tabular_d:
+                d_update = model.gain_adapter.get_d_update(obs_t, next_t)
+            else:
+                d_out = model.d_net(obs_t) # [1, n_actions]
+                d_update = d_out[0, action].item()  # get the D update for the action taken
+            # get your PID gains α, β (and kp,ki,kd if you want)
+            action_scalar = int(action)  
+            a_t = torch.tensor([[action_scalar]], dtype=torch.long, device=model.device)
+            kp, ki, kd, alpha, beta = model.gain_adapter.get_gains(obs_t, a_t, None)
+
+            # d) Q-values for TD‐error
+            q_curr = model.policy.q_net(obs_t)[0, action].item()
+            q_next = model.q_net_target(next_t).max(dim=1)[0].item()
+            td_err = reward + (0.0 if done else model.gamma * q_next) - q_curr  # BRₜ
+
+            # e) integrator update
+            z_update = beta * z_prev + alpha * td_err
+
+            q_cue    = model.policy.q_net(obs_t)[0, action_scalar].item()
+            q_reward = model.policy.q_net(next_t)[0, action_scalar].item()
+            print(f"Q(cue)={q_cue:.3f}, Q(next)={q_reward:.3f}")
+        
+        # add to the replay buffer
+        model.replay_buffer.add(obs=obs, next_obs=next_obs,
+                                action=np.array([action]),
+                                reward=np.array([reward], dtype=np.float32),
+                                done=done, infos=[info],
+                                d=np.array([d_update], dtype=np.float32), 
+                                z=np.array([z_update], dtype=np.float32),
+                                )
+        z_prev = z_update
         # record every timestep in the session trace
         recorder.record_env_step(action, reward, next_obs, info, model=model)
+        # update obs
+        obs = next_obs
 
     # print(info) # Print trial summary
     if outcome != "enl_break": trial_idx += 1 # update trial index
 
     # 2) build a tiny buffer for exactly this trial
     N = len(trial_transitions)
-    trial_buf = PIDReplayBuffer(
-        buffer_size=N,
-        observation_space=env.observation_space,
-        action_space=env.action_space,
-        device=model.device,
-        optimize_memory_usage=False,
-        handle_timeout_termination=True,
-    )
-    # fill it
-    for (s, a, s2, r, done, info) in trial_transitions:
-        trial_buf.add(obs=s, next_obs=s2, 
-                      action=np.array([a]), reward=np.array([r]), done=np.array([done]), infos=[info])
-
-    # 3) swap in, do a *single* batch-update on the whole trial
-    model.replay_buffer = trial_buf
+    # trial_buf = OnlineReplayBuffer(
+    #     buffer_size=N,
+    #     observation_space=env.observation_space,
+    #     action_space=env.action_space,
+    #     device=model.device,
+    #     optimize_memory_usage=False,
+    #     handle_timeout_termination=True,
+    #     n_steps=n_step_td,
+    #     gamma=gamma,
+    # )
+    # # fill it
+    # for (s, a, s2, r, done, info) in trial_transitions:
+    #     trial_buf.add(obs=s, next_obs=s2, 
+    #                   action=np.array([a]), reward=np.array([r]), done=np.array([done]), infos=[info])
+    # # 3) swap in, do a *single* batch-update on the whole trial
+    # model.replay_buffer = trial_buf
 
     # 4) do a single training step
-    model.train(batch_size=N, gradient_steps=1)
+    model.train(batch_size=batch_size, seq_len=N, gradient_steps=gradient_steps)
     # record the *actual* PID-DQN update signal for this trial
     recorder.record_train(model)
 

@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
+import pickle
 
 def plotSEM(x, y, label=None, color=None, ax=None, alpha=0.2):
     """Plot with shaded error margin."""
@@ -48,17 +49,48 @@ def get_traces(data, event, pre_steps, post_steps):
         aligned_data[i, w_lo:w_hi] = data[lo : hi+1]
 
     return aligned_data
+
+def fft(td_error, sample_rate):
+    all_magnitudes = []
+
+    for i in range(td_error.shape[0]):
+        signal = td_error[i]
+        fft_vals = np.fft.fft(signal)
+        freqs = np.fft.fftfreq(len(signal), d=1/sample_rate)
+
+        pos_mask = freqs >= 0
+        freqs = freqs[pos_mask]
+        fft_vals = fft_vals[pos_mask]
+
+        magnitudes = np.abs(fft_vals)
+        magnitudes[1:] *= 2
+        all_magnitudes.append(magnitudes)
+
+    all_magnitudes = np.stack(all_magnitudes)
+
+    return freqs, all_magnitudes
     
-def plot_figure(licks, tds, reward_history, loss_history,
+def plot_figure(licks, tds, reward_history, loss_history, 
+                tds_PD=None, tds_TD=None,
                 dt=0.1,
                 pre_steps=20, post_steps=30,
-                tau_on: float = 0.01, tau_off: float = 0.1):
+                tau_on: float = 0.01, tau_off: float = 0.1, controller="TD"):
+    
+    # Fill tds_PD and tds_TD with zeros if not provided
+    if tds_PD is None:
+        tds_PD = np.zeros_like(tds)
+    if tds_TD is None:
+        tds_TD = np.zeros_like(tds)
     
     # convert to numpy arrays if not already
     if not isinstance(licks, np.ndarray):
         licks = np.array(licks)
     if not isinstance(tds, np.ndarray):
         tds = np.array(tds)
+    if not isinstance(tds_PD, np.ndarray):
+        tds_PD = np.array(tds_PD)
+    if not isinstance(tds_TD, np.ndarray):
+        tds_TD = np.array(tds_TD)
 
     # time axis from -1s to +2s at 0.1s steps
     dt = 0.1
@@ -79,24 +111,24 @@ def plot_figure(licks, tds, reward_history, loss_history,
     ], axis=0)
 
     # Plotting
-    fig = plt.figure(figsize=(18, 10))
-    gs  = GridSpec(2, 3, figure=fig, width_ratios=[1, 1, 1.2], wspace=0.2, hspace=0.3)
+    fig = plt.figure(figsize=(14, 8))
+    gs  = GridSpec(3, 3, figure=fig, width_ratios=[1, 1, 1.2], height_ratios=[1, 1, 0.7], wspace=0.2, hspace=0.4)
 
     # top‐left: Reward per trial
     ax0 = fig.add_subplot(gs[0, 0])
     ax0.plot(reward_history)
-    ax0.set_title("Reward per trial")
+    ax0.set_title(f"Reward per trial ({controller})")
     ax0.set_xlabel("Trial")
     ax0.set_ylabel("Total Reward")
 
     # top‐middle: Loss per trial
     ax1 = fig.add_subplot(gs[0, 1])
     ax1.plot(loss_history)
-    ax1.set_title("Loss per trial")
+    ax1.set_title(f"Loss per trial ({controller})")
     ax1.set_xlabel("Trial")
     ax1.set_ylabel("MSE Loss")
 
-    # bottom‐left: Lick raster (scatter)
+    # middle‐left: Lick raster (scatter)
     ax2 = fig.add_subplot(gs[1, 0])
     for i in range(num_trials):
         lick_times = t_axis[licks[i] == 1]
@@ -104,13 +136,13 @@ def plot_figure(licks, tds, reward_history, loss_history,
                     color='tab:pink', s=20, marker='o', alpha=0.8, edgecolor='none')
     # mark cue window
     ax2.fill_betweenx([0, num_trials+1], 0, 0.5, color='tab:orange', alpha=0.2, edgecolor='None')
-    ax2.set_title("Lick raster")
+    ax2.set_title(f"Lick raster ({controller})")
     ax2.set_xlabel("Time (s)")
     ax2.set_ylabel("Trial")
     ax2.set_xlim(t_axis[0], t_axis[-1])
     ax2.set_ylim(0.5, num_trials+1)
 
-    # bottom‐middle: average TD error + simulated DA signal
+    # middle‐middle: average TD error + simulated DA signal
     ax3 = fig.add_subplot(gs[1, 1])
     plotSEM(t_axis, tds, label="TD Error", color='tab:blue', ax=ax3, alpha=0.2)
     plotSEM(t_axis, DAs, label="DA Signal", color='tab:green', ax=ax3, alpha=0.2)
@@ -118,10 +150,33 @@ def plot_figure(licks, tds, reward_history, loss_history,
     ymin, ymax = ax3.get_ylim()
     ax3.fill_betweenx([ymin, ymax], 0, 0.5, color='tab:orange', alpha=0.2, edgecolor='None')
     ax3.set_ylim(ymin, ymax)
-    ax3.set_title("TD error vs time")
+    ax3.set_title(f"TD error vs time ({controller})")
     ax3.set_xlabel("Time (s)")
     ax3.set_ylabel("TD Error")
     ax3.legend(loc='upper left', fontsize=10, frameon=False)
+
+    # bottom left: raw tds
+    ax4 = fig.add_subplot(gs[2, 0])
+    plotSEM(t_axis, tds_TD, label="TD Only", color='tab:blue', ax=ax4, alpha=0.3)
+    plotSEM(t_axis, tds_PD, label="With PD", color='tab:red', ax=ax4, alpha=0.3)
+    ymin, ymax = ax4.get_ylim()
+    ax4.fill_betweenx([ymin, ymax], 0, 0.5, color='tab:orange', alpha=0.2, edgecolor='None')
+    ax4.set_ylim(ymin, ymax)
+    ax4.set_title("TD vs PD TD Errors")
+    ax4.set_xlabel("Time (s)")
+    ax4.set_ylabel("TD Error")
+    ax4.legend(loc='upper left', fontsize=10, frameon=False)
+
+    # bottom middle: FFT
+    ax5 = fig.add_subplot(gs[2, 1])
+    td_freqs, td_magnitudes = fft(td_error = tds_TD, sample_rate = 50)
+    pd_freqs, pd_magnitudes = fft(td_error = tds_PD, sample_rate = 50)
+    plotSEM(pd_freqs, pd_magnitudes, label='PD', color='tab:blue', ax=ax5, alpha=0.3)
+    plotSEM(td_freqs, td_magnitudes, label='TD', color='tab:orange', ax=ax5, alpha=0.3)
+    ax5.set_xlabel("Frequency")
+    ax5.set_ylabel("Magnitude")
+    ax5.set_title("FFT of TD Errors")
+    ax5.legend(loc='upper right', fontsize=10, frameon=False)
 
     # the new heatmap, spanning both rows in column 3
     ax_heat = fig.add_subplot(gs[:, 2])

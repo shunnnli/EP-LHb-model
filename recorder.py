@@ -32,6 +32,7 @@ class SessionRecorder:
         self.tones     = []
         self.rewards   = []
         self.losses    = []
+        self.enl_breaks = []
         self.dones     = []
         self._prev_obs = None
         self.lick_action = lick_action
@@ -48,13 +49,14 @@ class SessionRecorder:
         """Call right after env.step(...)"""
         # 1) compute instant TD‐error for _this_ transition
         td = 0.0
+        done = int(info.get("done", False))
         if self._prev_obs is not None and model is not None:
             obs_t      = torch.as_tensor(self._prev_obs).unsqueeze(0).to(model.device)
             next_t     = torch.as_tensor(new_obs).unsqueeze(0).to(model.device)
             with torch.no_grad():
                 q_cur  = model.q_net(obs_t)[0, action]
                 q_next = model.q_net_target(next_t).max(1)[0]
-                td     = (reward + model.gamma * q_next - q_cur).item()
+                td     = (reward + (1 - done) * model.gamma * q_next - q_cur).item()
         self._prev_obs = new_obs
 
         # 2) flags
@@ -84,6 +86,7 @@ class SessionRecorder:
         kp = getattr(model, "kp",       None)
         ki = getattr(model, "ki",       None)
         kd = getattr(model, "kd",       None)
+        loss = getattr(model, "latest_loss", 0.0)
 
         # record their batch‐means
         self.p.append(mean_or_none(p))
@@ -92,6 +95,7 @@ class SessionRecorder:
         self.kp.append(mean_or_none(kp))
         self.ki.append(mean_or_none(ki))
         self.kd.append(mean_or_none(kd))
+        self.losses.append(loss)
 
 
 class SessionRecorderCallback(BaseCallback):
@@ -169,8 +173,8 @@ class SessionRecorderCallback(BaseCallback):
         info   = infos[0]   if isinstance(infos, list)          else infos
 
         # 1) compute TD error
-        done = int(info.get("done", False)) 
         td = 0.0
+        done = int(info.get("done", False))
         if self._prev_obs is not None:
             # turn to torch tensors
             obs_t     = torch.as_tensor(self._prev_obs).unsqueeze(0).to(self.model.device)
@@ -180,7 +184,7 @@ class SessionRecorderCallback(BaseCallback):
                 q_cur  = self.model.q_net(obs_t)[0, action]
                 # max_a' Q_target(next, a')
                 q_next = self.model.q_net_target(next_obs_t).max(dim=1)[0]
-                td     = (reward + (1 - done) * self.model.gamma * q_next - q_cur).item()
+                td = (reward + (1-done) * self.model.gamma * q_next - q_cur).item()
         self._prev_obs = new_obs
 
         # 2) binary lick flag
@@ -251,6 +255,7 @@ class TrialRecorderCallback(BaseCallback):
         new_obs = self.locals.get("new_obs")
         rewards = self.locals.get("rewards")
         infos   = self.locals.get("infos")
+        
 
         # single‐env unpack
         action = actions[0] if isinstance(actions, (list, np.ndarray)) else actions
@@ -259,13 +264,14 @@ class TrialRecorderCallback(BaseCallback):
 
         # 2) compute the instantaneous TD‐error exactly like your original callback
         td_err = 0.0
+        done = int(info.get('done', False))
         if self.prev_obs is not None:
             obs_t  = torch.as_tensor(self.prev_obs).unsqueeze(0).to(self.model.device)
             next_t = torch.as_tensor(new_obs).unsqueeze(0).to(self.model.device)
             with torch.no_grad():
                 q_cur  = self.model.q_net(obs_t)[0, action]
                 q_next = self.model.q_net_target(next_t).max(1)[0]
-                td_err = (reward + self.model.gamma * q_next - q_cur).item()
+                td_err = (reward + (done-1) * self.model.gamma * q_next - q_cur).item()
         self.prev_obs = new_obs
 
         # 3) update the pre‐cue buffers if not yet recording
