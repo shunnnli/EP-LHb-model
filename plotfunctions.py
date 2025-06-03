@@ -18,37 +18,32 @@ def plotSEM(x, y, label=None, color=None, ax=None, alpha=0.2):
     ax.fill_between(x, mean - std, mean + std, alpha=alpha, color=color,
                      edgecolor='None', label='_nolegend_')
     
-def get_traces(data, event, pre_steps, post_steps):
-    """
-    Aligns data to event indices.
-    """
-    data = np.asarray(data)
 
-    # Extract rising edge if necessary
+def get_traces(data, event, pre_steps, post_steps):
+    data = np.asarray(data)
+    T    = data.shape[0]
+
     if len(data) == len(event):
         event_idx = np.where(np.diff(event) == 1)[0] + 1
     else:
-        event_idx = event
+        event_idx = np.asarray(event, dtype=int)
 
-    n_trials = len(event_idx)
-    window_len = pre_steps + post_steps
-    T = len(data)
+    n_trials   = len(event_idx)
+    window_len = pre_steps + post_steps + 1
 
     aligned_data = np.zeros((n_trials, window_len), dtype=data.dtype)
 
     for i, idx in enumerate(event_idx):
-        start = idx - pre_steps + 1
+        start = idx - pre_steps
         end   = idx + post_steps
-        # fill in the valid slice
         lo = max(start, 0)
-        hi = min(end, T-1)
-        # these are the positions within the window array
+        hi = min(end, T - 1)
         w_lo = lo - start
         w_hi = w_lo + (hi - lo) + 1
-
-        aligned_data[i, w_lo:w_hi] = data[lo : hi+1]
+        aligned_data[i, w_lo : w_hi] = data[lo : hi + 1]
 
     return aligned_data
+
 
 def fft(td_error, sample_rate):
     all_magnitudes = []
@@ -72,8 +67,9 @@ def fft(td_error, sample_rate):
     
 def plot_figure(licks, tds, reward_history, loss_history, 
                 tds_PD=None, tds_TD=None,
-                dt=0.1,
-                pre_steps=20, post_steps=30,
+                timestamp = None, time_range=(-1,4),
+                pre_steps: int = 10, post_steps: int = 20, dt: float = 0.1,
+                signal_fs: float = 10.0,
                 tau_on: float = 0.01, tau_off: float = 0.1, controller="TD"):
     
     # Fill tds_PD and tds_TD with zeros if not provided
@@ -93,15 +89,19 @@ def plot_figure(licks, tds, reward_history, loss_history,
         tds_TD = np.array(tds_TD)
 
     # time axis from -1s to +2s at 0.1s steps
-    dt = 0.1
-    max_trial_steps = pre_steps + post_steps
-    t_axis = np.linspace(-pre_steps*dt, (max_trial_steps-pre_steps)*dt, max_trial_steps)
+    if timestamp is None:
+        # dt = 0.1
+        max_trial_steps = pre_steps + post_steps + 1
+        timestamp = np.linspace(-pre_steps*dt, (max_trial_steps-pre_steps)*dt, max_trial_steps)
+        # t0, t1    = time_range
+        # n_pts     = int(round((t1 - t0) * signal_fs)) + 1
+        # timestamp = t0 + np.arange(n_pts) / signal_fs
 
     # number of trials
     num_trials = licks.shape[0]
 
     # build DA kernel
-    t_kernel = np.arange(0, 1.0, dt)  # 0–1 s
+    t_kernel = np.arange(0, 1.0, 1/signal_fs)  # 0–1 s
     kernel = np.exp(-t_kernel/tau_off) - np.exp(-t_kernel/tau_on)
     kernel /= np.sum(kernel)  # normalize area to 1
     # convolve with DA kernel
@@ -131,7 +131,7 @@ def plot_figure(licks, tds, reward_history, loss_history,
     # middle‐left: Lick raster (scatter)
     ax2 = fig.add_subplot(gs[1, 0])
     for i in range(num_trials):
-        lick_times = t_axis[licks[i] == 1]
+        lick_times = timestamp[licks[i] == 1]
         ax2.scatter(lick_times, np.ones_like(lick_times)*(i+1),
                     color='tab:pink', s=20, marker='o', alpha=0.8, edgecolor='none')
     # mark cue window
@@ -139,13 +139,13 @@ def plot_figure(licks, tds, reward_history, loss_history,
     ax2.set_title(f"Lick raster ({controller})")
     ax2.set_xlabel("Time (s)")
     ax2.set_ylabel("Trial")
-    ax2.set_xlim(t_axis[0], t_axis[-1])
+    ax2.set_xlim(timestamp[0], timestamp[-1])
     ax2.set_ylim(0.5, num_trials+1)
 
     # middle‐middle: average TD error + simulated DA signal
     ax3 = fig.add_subplot(gs[1, 1])
-    plotSEM(t_axis, tds, label="TD Error", color='tab:blue', ax=ax3, alpha=0.2)
-    plotSEM(t_axis, DAs, label="DA Signal", color='tab:green', ax=ax3, alpha=0.2)
+    plotSEM(timestamp, tds, label="TD Error", color='tab:blue', ax=ax3, alpha=0.2)
+    plotSEM(timestamp, DAs, label="DA Signal", color='tab:green', ax=ax3, alpha=0.2)
     # shade cue
     ymin, ymax = ax3.get_ylim()
     ax3.fill_betweenx([ymin, ymax], 0, 0.5, color='tab:orange', alpha=0.2, edgecolor='None')
@@ -157,8 +157,8 @@ def plot_figure(licks, tds, reward_history, loss_history,
 
     # bottom left: raw tds
     ax4 = fig.add_subplot(gs[2, 0])
-    plotSEM(t_axis, tds_TD, label="TD Only", color='tab:blue', ax=ax4, alpha=0.3)
-    plotSEM(t_axis, tds_PD, label="With PD", color='tab:red', ax=ax4, alpha=0.3)
+    plotSEM(timestamp, tds_TD, label="TD Only", color='tab:blue', ax=ax4, alpha=0.3)
+    plotSEM(timestamp, tds_PD, label="With PD", color='tab:red', ax=ax4, alpha=0.3)
     ymin, ymax = ax4.get_ylim()
     ax4.fill_betweenx([ymin, ymax], 0, 0.5, color='tab:orange', alpha=0.2, edgecolor='None')
     ax4.set_ylim(ymin, ymax)
@@ -185,7 +185,7 @@ def plot_figure(licks, tds, reward_history, loss_history,
         data,
         aspect='auto',
         interpolation='nearest',
-        extent=[t_axis[0], t_axis[-1], num_trials, 1],
+        extent=[timestamp[0], timestamp[-1], num_trials, 1],
         cmap='RdBu_r',
         vmin=-np.max(np.abs(data)),
         vmax=np.max(np.abs(data)),
