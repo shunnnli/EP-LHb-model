@@ -117,7 +117,7 @@ class OperantLearning(gym.Env):
         # Incur action cost for licking
         if action == 1:
             reward -= self.action_cost
-
+        
         if self.phase == 0:
             # ENL period: reset if lick, count if no lick
             if action == 1:

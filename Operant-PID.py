@@ -3,7 +3,7 @@ import os, sys, importlib
 repo_path = os.path.abspath("./PID-Accelerated-TD-Learning")
 if repo_path not in sys.path:
     sys.path.insert(0, repo_path)
-# from TabularPID.AgentBuilders.DQNBuilder import build_PID_DQN
+# from TabularPID.AgentBuilders.DQNBuilder import build_PID_DQN # not working for me
 from stable_baselines3.common.logger import configure
 from stable_baselines3.common.buffers import ReplayBuffer
 from TabularPID.Agents.DQN.DQN import PID_DQN
@@ -112,15 +112,15 @@ class OnlineReplayBuffer(ReplayBuffer):
 # Hyperparameters
 # --------------------
 pairing          = 'reward'
-num_trials       = 100
+num_trials       = 200
 pre_steps        = 10    # 1 s @ 100 ms
 post_steps       = 40    # 5 s @ 100 ms
 max_trial_steps  = pre_steps + post_steps
 
-omission_prob    = 0.0
+omission_prob    = 0.01
 enl_duration     = (2.0, 4.0)  # seconds
 action_cost      = 0.05
-enl_penalty      = 0.1
+enl_penalty      = 0.25
 
 tau_on  = 0.01   # 10 ms
 tau_off = 0.1    # 100 ms
@@ -152,13 +152,13 @@ pid_params = {
     "gamma": gamma,              # discount factor
     "gradient_steps": 1,
     "train_freq": 1,
-    "target_update_interval": 1000,
+    "target_update_interval": 10,
 
     'meta_lr': 1e-3,           # meta-learning rate for gains
     'epsilon_gain': 0.1,          # exploration rate for gains
 
-    "initial_eps": 0.7,
-    "exploration_fraction": 0.07,
+    "initial_eps": 0.1,
+    "exploration_fraction": 0.01, 
     "minimum_eps": 0.05,
     "learning_starts": 1000,
 
@@ -166,7 +166,7 @@ pid_params = {
     "dump_buffer": False,
     "is_double": False,
     "policy_evaluation": False,
-    "seed": 42,
+    "seed": 26,
 }
 
 # --------------------
@@ -256,8 +256,8 @@ recorder = SessionRecorder()
 # epsilon decay params
 eps_start    = pid_params["initial_eps"]
 eps_end      = pid_params["minimum_eps"]
-max_num_iters = 28590
-decay_trials = int(pid_params["exploration_fraction"] * max_num_iters)
+max_num_iters = 40000
+decay_trials = int(pid_params["exploration_fraction"] * max_num_iters) 
 
 # Set up buffer
 model.replay_buffer = OnlineReplayBuffer(
@@ -276,9 +276,13 @@ model.replay_buffer = OnlineReplayBuffer(
 obs, _ = env.reset()
 trial_idx = 0
 iter_count = 1
+eps = eps_start  # start with high exploration rate
 
 while trial_idx < num_trials:
-    print(f"Trial {trial_idx + 1}/{num_trials}")
+    print(f"Trial {trial_idx+1}/{num_trials}, ε={eps:.3f}")
+    if trial_idx > 50: # make omission prob higher after 50 trials
+        env.omission_prob = 0.2
+
     # reset the LSTM here so it doesn’t leak from the last trial
     z_prev = 0.0
     model.policy.q_net.reset_hidden(batch_size=batch_size)
@@ -288,12 +292,9 @@ while trial_idx < num_trials:
     done = False
 
     while not done:
-        # compute step-based epsilon
-        frac = min(1.0, iter_count / max(1, decay_trials))
-        eps  = eps_start + frac * (eps_end - eps_start)
         model.exploration_rate = eps
         model.logger.record("rollout/exploration_rate", eps)
-        print(f"Trial {trial_idx+1}/{num_trials}, ε={eps:.3f}")
+        # print(f"Trial {trial_idx+1}/{num_trials}, ε={eps:.3f}")
 
         # act
         action, _ = model.predict(obs, deterministic=False)
@@ -331,7 +332,7 @@ while trial_idx < num_trials:
             q_curr = model.policy.q_net(obs_t)[0, action].item()
             q_next = model.policy.q_net_target(next_t).max(dim=1)[0].item()
             td_err = reward + (0.0 if done else model.gamma * q_next) - q_curr  # BRₜ
-            # print("Q current:", q_curr, "New Q next:", q_next, "TD Error:", td_err, "Reward:", reward, "Done:", done)
+            # print("Q current:", q_curr, "Q next:", q_next, "TD Error:", td_err, "Reward:", reward, "Done:", done, "Action:", action_scalar)
 
             # e) integrator update
             z_update = beta * z_prev + alpha * td_err
@@ -353,26 +354,14 @@ while trial_idx < num_trials:
         # update obs
         obs = next_obs
 
-    if outcome != "enl_break": trial_idx += 1 # update trial index
+    if outcome != "enl_break": 
+        trial_idx += 1 # update trial index
+        # compute step-based epsilon
+        frac = min(1.0, trial_idx / max(1, decay_trials))
+        eps  = eps_start + frac * (eps_end - eps_start)
 
     # 2) build a tiny buffer for exactly this trial
     N = len(trial_transitions)
-    # trial_buf = OnlineReplayBuffer(
-    #     buffer_size=N,
-    #     observation_space=env.observation_space,
-    #     action_space=env.action_space,
-    #     device=model.device,
-    #     optimize_memory_usage=False,
-    #     handle_timeout_termination=True,
-    #     n_steps=n_step_td,
-    #     gamma=gamma,
-    # )
-    # # fill it
-    # for (s, a, s2, r, done, info) in trial_transitions:
-    #     trial_buf.add(obs=s, next_obs=s2, 
-    #                   action=np.array([a]), reward=np.array([r]), done=np.array([done]), infos=[info])
-    # # 3) swap in, do a *single* batch-update on the whole trial
-    # model.replay_buffer = trial_buf
 
     # 4) do a single training step
     model.train(batch_size=batch_size, seq_len=N, gradient_steps=gradient_steps)
@@ -386,34 +375,6 @@ while trial_idx < num_trials:
 # Plot Summary Figure
 # --------------------
 
-td_errors = np.array(recorder.td_errors)
-licks     = np.array(recorder.licks)
-tones     = np.array(recorder.tones)
-
-rewards = np.array(recorder.rewards)
-losses  = np.array(recorder.losses)
-dones   = np.array(recorder.dones)
-
-p_history = np.array(recorder.p)
-d_history = np.array(recorder.d)
-i_history = np.array(recorder.i)
-kp_history = np.array(recorder.kp)
-ki_history = np.array(recorder.ki)
-kd_history = np.array(recorder.kd)
-update_history = kp_history * p_history + ki_history * i_history + kd_history * d_history
-
-# Align licks and TD errors to the cue
-error = td_errors
-cue_licks = get_traces(licks, tones, pre_steps, post_steps)
-cue_error   = get_traces(error, tones, pre_steps, post_steps)
-
-# Get reward and loss history
-trial_ends = np.where(dones)[0]
-trial_starts = np.concatenate(([0], trial_ends[:-1] + 1))
-reward_history = [rewards[s : e + 1].sum() for s, e in zip(trial_starts, trial_ends)]
-loss_history = [losses[s : e + 1].mean() for s, e in zip(trial_starts, trial_ends)]
-
-plot_figure(cue_licks, cue_error, reward_history, loss_history,
-            dt=0.1,
-            pre_steps=pre_steps, post_steps=post_steps,
+plot_figure(recorder,
+            dt=0.1, pre_steps=pre_steps, post_steps=post_steps,
             tau_on=tau_on, tau_off=tau_off)

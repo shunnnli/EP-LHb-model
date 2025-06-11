@@ -36,6 +36,7 @@ class SessionRecorder:
         self.dones     = []
         self._prev_obs = None
         self.lick_action = lick_action
+        self.omissions = []
         
         # per‐train‐call logs
         self.p  = []
@@ -62,6 +63,7 @@ class SessionRecorder:
         # 2) flags
         lick_flag = int(action == self.lick_action)
         tone_flag = int(info.get("cue", False))
+        omission_flag = int(info.get("outcome", False) == "omission")
 
         # 3) append
         self.td_errors.append(td)
@@ -70,6 +72,7 @@ class SessionRecorder:
         self.rewards  .append(reward)
         self.dones    .append(bool(info.get("done", False)))
         self.losses   .append(model.logger.name_to_value.get("train/loss", 0.0))
+        self.omissions.append(omission_flag)
 
     def record_train(self, model):
         """Call right after model.train(batch_size=..., gradient_steps=...)."""
