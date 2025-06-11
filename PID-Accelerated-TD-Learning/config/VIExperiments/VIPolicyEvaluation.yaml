@@ -1,0 +1,21 @@
+kp: 1
+kd: 0
+ki: 0
+alpha: 0.05
+beta: 0.95
+gamma: 0.99
+
+env: chain walk
+
+norm: 1
+num_iterations: 500
+name: VIPolicyEvaluation
+
+save_dir: ${oc.env:OUTPUT_DIR,./outputs}/${hydra.job.config_name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+
+seed: -1
+hydra:
+  run:
+    dir: ${oc.env:OUTPUT_DIR,./outputs}/${hydra.job.config_name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  job:
+    chdir: False

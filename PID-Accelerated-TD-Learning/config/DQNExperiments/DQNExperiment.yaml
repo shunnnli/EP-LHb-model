@@ -1,0 +1,70 @@
+kp: 1
+kd: 0
+ki: 0
+alpha: 0.05
+beta: 0.95
+
+# If Double Q learning should be used
+is_double: False
+
+# D component parameters
+tabular_d: False
+d_tau: 1e-3
+
+# Gain adaptation parameters
+gain_adapter: NoGainAdapter  # Options: NoGainAdapter, SingleGainAdapter, DiagonalGainAdapter, NetworkGainAdapter
+adapt_gains: False
+epsilon: 1e-1
+meta_lr: 1e-2
+meta_lr_p: -1
+meta_lr_I: -1
+meta_lr_d: -1
+use_previous_BRs: True
+lambda: 0
+
+# FQI parameters
+FQI: False
+
+slow_motion: 1
+
+normalize: False
+should_stop: False  # Whether we early stop the training once some amount of reward is reached
+policy_evaluation: False  # Whether we do deep TD instead of deep Q learning
+num_runs: 10
+
+log_interval: 1  # The number of episodes before reward is logged to the console
+progress_bar: False
+tensorboard_log: tensorboard
+
+experiment_name: DQNExperiment
+
+dump_buffer: False
+visualize: False
+eval: True
+is_TD: False
+
+name: cartpole
+defaults:
+  - _self_
+  - env: cartpole
+
+save_dir: ${oc.env:OUTPUT_DIR,./outputs}/${experiment_name}/${name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+
+seed: -1
+run_name: 123
+hydra:
+  run:
+    dir: ${oc.env:OUTPUT_DIR,./outputs}/DQNExperiment/${name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  job:
+    chdir: False
+
+  sweep:
+    dir: outputs/DQNExperiment/${name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ""
+  
+  #mode: MULTIRUN
+  #sweeper:
+  #  params:
+  #    meta_lr: 1e-2, 1e-3, 1e-4
+  #    epsilon: 1e-1, 1e-2, 1e-3
+  #    tau_d: 1e-1, 1e-2, 1e-3

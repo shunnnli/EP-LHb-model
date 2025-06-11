@@ -1,0 +1,22 @@
+env: chain walk
+norm: diff 25
+num_iterations: 1000
+meta_lr: 1e-6
+gamma: 0.999
+
+follow_trajectory: False
+normalize: True
+repeat: 3
+
+agent_name: planner
+log_plot: False
+
+name: fine-tuning
+save_dir: ${oc.env:OUTPUT_DIR,./outputs}/${hydra.job.config_name}/${name}/${env}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+
+seed: -1
+hydra:
+  run:
+    dir: ${oc.env:OUTPUT_DIR,./outputs}/${hydra.job.config_name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  job:
+    chdir: True

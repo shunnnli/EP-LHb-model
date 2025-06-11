@@ -1,0 +1,36 @@
+kp: 1
+kd: 0
+ki: 0
+alpha: 0.05
+beta: 0.95
+decay: 1
+gamma: 0.99
+
+agent_name: Q learning
+
+env: chain walk
+num_iterations: 100000
+search_steps: 100000
+norm: fro
+get_optimal: True # Get the optimal parameters from the database
+compute_optimal: True # Run a grid search. When recompute_optimal is false, we don't run a grid search if the optimal parameters are in the database already
+recompute_optimal: False  # If compute_optimal is True, run a grid search even if the optimal parameters are in the database
+debug: False # If multiprocessing should be disabled
+repeat: 1
+name: PIDQLearning
+measure_time: False
+
+stop_if_diverging: True
+
+log_plot: False
+normalize: True
+
+follow_trajectory: False
+save_dir: ${oc.env:OUTPUT_DIR,./outputs}/${hydra.job.config_name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+
+seed: -1
+hydra:
+  run:
+    dir: ${oc.env:OUTPUT_DIR,./outputs}/${hydra.job.config_name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  job:
+    chdir: False
