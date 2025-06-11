@@ -117,7 +117,7 @@ pre_steps        = 10    # 1 s @ 100 ms
 post_steps       = 40    # 5 s @ 100 ms
 max_trial_steps  = pre_steps + post_steps
 
-omission_prob    = 0.01
+omission_prob    = 0.05
 enl_duration     = (2.0, 4.0)  # seconds
 action_cost      = 0.05
 enl_penalty      = 0.25
@@ -139,7 +139,7 @@ replaybuffer = OnlineReplayBuffer
 pid_params = {
     "kp": 1.0,                  # proportional gain
     "ki": 0.0,                  # integral gain
-    "kd": 0.0,                  # derivative gain
+    "kd": 0.3,                  # derivative gain
     "alpha": 0.05,              # meta-learning rate for gains
     "beta": 0.95,               # momentum term for meta updates
     "d_tau": 1e-3,              # time constant for D component
@@ -280,8 +280,8 @@ eps = eps_start  # start with high exploration rate
 
 while trial_idx < num_trials:
     print(f"Trial {trial_idx+1}/{num_trials}, ε={eps:.3f}")
-    if trial_idx > 50: # make omission prob higher after 50 trials
-        env.omission_prob = 0.2
+    # if trial_idx > 50: # make omission prob higher after 50 trials
+    #     env.omission_prob = 0.1
 
     # reset the LSTM here so it doesn’t leak from the last trial
     z_prev = 0.0

@@ -45,6 +45,7 @@ class OperantLearning(gym.Env):
         # how many steps to delay reward detection
         self.detection_delay = detection_delay + 1  # +1 to account for the first step
         self._reward_buffer = deque([0]*self.detection_delay, maxlen=self.detection_delay)
+        self._cue_buffer    = deque([0]*self.detection_delay, maxlen=self.detection_delay)
         self._pending_reset_steps = 0
 
         # Internal state
@@ -75,6 +76,10 @@ class OperantLearning(gym.Env):
         self._pending_reset_steps = 0
         self._reward_buffer.clear()
         self._reward_buffer.extend([0]*self.detection_delay)
+        # clear cue buffer
+        self._cue_buffer.clear()
+        self._cue_buffer.extend([0]*self.detection_delay)
+
         return self._get_obs(), {}
 
     def _get_obs(self):
@@ -95,6 +100,9 @@ class OperantLearning(gym.Env):
         self._pending_reset_steps = 0
         self._reward_buffer.clear()
         self._reward_buffer.extend([0]*self.detection_delay)
+        # clear cue buffer
+        self._cue_buffer.clear()
+        self._cue_buffer.extend([0]*self.detection_delay)
 
     def render(self, mode='human'):
         if self.render_mode == "rgb_array":
@@ -219,6 +227,16 @@ class OperantLearning(gym.Env):
                 "done": False,
                 "outcome": self.outcome_type,
             }
+
+        # apply cue‐detection delay before returning the observation to the agent
+        obs = self._get_obs()
+        if self.detection_delay > 0:
+            # buffer the cue state
+            self._cue_buffer.append(self.cue_on)
+            # pop oldest (which occurred detection_delay steps ago)
+            obs[1] = self._cue_buffer.popleft()
+        else:
+            obs[1] = self.cue_on
         
         # implement detection delay: buffer raw_reward before returning
         if self.detection_delay > 0 and info["outcome"] != "enl_break":
