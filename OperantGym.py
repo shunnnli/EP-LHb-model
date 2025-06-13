@@ -1,7 +1,7 @@
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
-from collections import deque
+from collections import deque, defaultdict
 
 class OperantLearning(gym.Env):
     """
@@ -45,7 +45,6 @@ class OperantLearning(gym.Env):
         # how many steps to delay reward detection
         self.detection_delay = detection_delay + 1  # +1 to account for the first step
         self._reward_buffer = deque([0]*self.detection_delay, maxlen=self.detection_delay)
-        self._cue_buffer    = deque([0]*self.detection_delay, maxlen=self.detection_delay)
         self._pending_reset_steps = 0
 
         # Internal state
@@ -58,9 +57,49 @@ class OperantLearning(gym.Env):
         self.last_trial_info = None
         self.outcome_type = None
 
+        # expose transition model dict
+        self.P = defaultdict(list)
+        self._build_transition_model(num_samples=5000)
+
         # Fake render mode
         self.render_mode = render_mode
         self._screen = None
+    def _state_index(self, obs):
+        # Map observation to discrete state index
+        phase, cue = obs
+        return phase * 2 + cue
+
+    def _build_transition_model(self, num_samples=10000):
+        """
+        Empirically estimate P(s,a) by sampling transitions.
+        """
+        counts = defaultdict(lambda: defaultdict(int))
+        sums = defaultdict(int)
+        for s in range(4):  # 2 phases x 2 cue states
+            # set env to deterministic obs state s
+            phase, cue = divmod(s, 2)
+            for a in range(self.action_space.n):
+                for _ in range(num_samples):
+                    # force internal state
+                    self.phase = phase
+                    self.cue_on = cue
+                    self.time = 0
+                    # clear buffers
+                    self.lick_buffer = []
+                    self._reward_buffer.clear(); self._reward_buffer.extend([0]*self.detection_delay)
+                    # step
+                    obs2, r, term, trunc, info = self.step(a)
+                    s2 = self._state_index(obs2)
+                    done = bool(term or trunc)
+                    key = (s2, r, done)
+                    counts[(s, a)][key] += 1
+                    sums[(s, a)] += 1
+        # normalize into probabilities
+        for (s, a), dests in counts.items():
+            total = sums[(s, a)]
+            for (s2, r, done), cnt in dests.items():
+                prob = cnt / total
+                self.P[(s, a)].append((prob, s2, r, done))
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -76,10 +115,6 @@ class OperantLearning(gym.Env):
         self._pending_reset_steps = 0
         self._reward_buffer.clear()
         self._reward_buffer.extend([0]*self.detection_delay)
-        # clear cue buffer
-        self._cue_buffer.clear()
-        self._cue_buffer.extend([0]*self.detection_delay)
-
         return self._get_obs(), {}
 
     def _get_obs(self):
@@ -100,9 +135,6 @@ class OperantLearning(gym.Env):
         self._pending_reset_steps = 0
         self._reward_buffer.clear()
         self._reward_buffer.extend([0]*self.detection_delay)
-        # clear cue buffer
-        self._cue_buffer.clear()
-        self._cue_buffer.extend([0]*self.detection_delay)
 
     def render(self, mode='human'):
         if self.render_mode == "rgb_array":
@@ -227,16 +259,6 @@ class OperantLearning(gym.Env):
                 "done": False,
                 "outcome": self.outcome_type,
             }
-
-        # apply cue‐detection delay before returning the observation to the agent
-        obs = self._get_obs()
-        if self.detection_delay > 0:
-            # buffer the cue state
-            self._cue_buffer.append(self.cue_on)
-            # pop oldest (which occurred detection_delay steps ago)
-            obs[1] = self._cue_buffer.popleft()
-        else:
-            obs[1] = self.cue_on
         
         # implement detection delay: buffer raw_reward before returning
         if self.detection_delay > 0 and info["outcome"] != "enl_break":
