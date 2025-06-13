@@ -25,6 +25,8 @@ from recorder import SessionRecorder
 from types import SimpleNamespace
 from stable_baselines3.common.utils import zip_strict
 
+import pickle
+
 class OnlineReplayBuffer(ReplayBuffer):
     def __init__(
         self,
@@ -72,10 +74,10 @@ class OnlineReplayBuffer(ReplayBuffer):
         env=None,
         seq_len: int = None
     ):
-        # 1) pull out the base samples & indices exactly like SB3 does
         if seq_len is None:
-            base_batch = super().sample(batch_size, env=env)
-            idxs = base_batch.indices
+            # Generate indices manually
+            idxs = np.random.randint(0, self.size(), size=batch_size)
+            base_batch = self._get_samples(idxs, env=env)
         else:
             # truncated BPTT style: take the first `seq_len` of your buffer
             n    = self.size()
@@ -83,29 +85,36 @@ class OnlineReplayBuffer(ReplayBuffer):
             idxs = np.arange(L, dtype=int)
             base_batch = self._get_samples(idxs, env=env)
 
-        # 2) slice off your stored d & z
-        batch_ds = torch.as_tensor(self.ds[idxs], device=self.device)  # [B or L, 1]
-        batch_zs = torch.as_tensor(self.zs[idxs], device=self.device)  # [B or L, 1]
+        # Slice d & z using the sampled indices
+        batch_ds = torch.as_tensor(self.ds[idxs], device=self.device)
+        batch_zs = torch.as_tensor(self.zs[idxs], device=self.device)
 
-        # 3) turn the base namedtuple into a dict
+        # Turn the base namedtuple into a dict
         data = { field: getattr(base_batch, field) for field in base_batch._fields }
-        # 4) inject your two new tensors
+        # Inject your custom tensors
         data['ds'] = batch_ds
         data['zs'] = batch_zs
 
+        data['indices'] = idxs
+
+        # If using sequence mode, reshape accordingly
         if seq_len is not None:
             for field in ('observations','next_observations'):
                 arr = data[field]
                 if arr.ndim == 2:
-                    data[field] = arr[np.newaxis, ...]  # prepend batch=1
+                    data[field] = arr[np.newaxis, ...]
             for field in ('actions','rewards','dones','ds','zs'):
                 arr = data[field]
-                # actions might be [N,1], rewards [N], ds [N,1], zs [N,1], etc.
                 if arr.ndim == 1:
-                    data[field] = arr[np.newaxis, :]   # [1, N]
+                    data[field] = arr[np.newaxis, :]
                 elif arr.ndim == 2:
-                    data[field] = arr[np.newaxis, ...] # [1, N, ...]
+                    data[field] = arr[np.newaxis, ...]
         return SimpleNamespace(**data)
+    def update(self, indices, zs=None, ds=None):
+        if zs is not None:
+            self.zs[indices] = zs.cpu().numpy()
+        if ds is not None:
+            self.ds[indices] = ds.cpu().numpy()
 
 
 # --------------------
@@ -120,7 +129,7 @@ max_trial_steps  = pre_steps + post_steps
 omission_prob    = 0.05
 enl_duration     = (2.0, 4.0)  # seconds
 action_cost      = 0.05
-enl_penalty      = 0.25
+enl_penalty      = 0.05
 
 tau_on  = 0.01   # 10 ms
 tau_off = 0.1    # 100 ms
@@ -135,11 +144,12 @@ buffer_size = 100000 if batch_training else 1
 replaybuffer = OnlineReplayBuffer
 
 
+
 # PID-DQN parameters
 pid_params = {
     "kp": 1.0,                  # proportional gain
     "ki": 0.0,                  # integral gain
-    "kd": 0.3,                  # derivative gain
+    "kd": 1.0,                  # derivative gain
     "alpha": 0.05,              # meta-learning rate for gains
     "beta": 0.95,               # momentum term for meta updates
     "d_tau": 1e-3,              # time constant for D component
@@ -157,16 +167,17 @@ pid_params = {
     'meta_lr': 1e-3,           # meta-learning rate for gains
     'epsilon_gain': 0.1,          # exploration rate for gains
 
-    "initial_eps": 0.1,
-    "exploration_fraction": 0.01, 
-    "minimum_eps": 0.05,
+    "initial_eps": 0.7,
+    "exploration_fraction": 0.07,
+    
+    "minimum_eps": 0.07,
     "learning_starts": 1000,
 
     "inner_size": 64,           # hidden layer size
     "dump_buffer": False,
     "is_double": False,
     "policy_evaluation": False,
-    "seed": 26,
+    "seed": 42,
 }
 
 # --------------------
@@ -256,8 +267,10 @@ recorder = SessionRecorder()
 # epsilon decay params
 eps_start    = pid_params["initial_eps"]
 eps_end      = pid_params["minimum_eps"]
-max_num_iters = 40000
-decay_trials = int(pid_params["exploration_fraction"] * max_num_iters) 
+# max_num_iters = 40000
+max_num_iters = 20000
+
+decay_trials = int(pid_params["exploration_fraction"] * max_num_iters)
 
 # Set up buffer
 model.replay_buffer = OnlineReplayBuffer(
@@ -276,12 +289,11 @@ model.replay_buffer = OnlineReplayBuffer(
 obs, _ = env.reset()
 trial_idx = 0
 iter_count = 1
-eps = eps_start  # start with high exploration rate
 
 while trial_idx < num_trials:
-    print(f"Trial {trial_idx+1}/{num_trials}, ε={eps:.3f}")
-    # if trial_idx > 50: # make omission prob higher after 50 trials
-    #     env.omission_prob = 0.1
+    print(f"Trial {trial_idx + 1}/{num_trials}")
+    if trial_idx > 50: # make omission prob higher after 50 trials
+        env.omission_prob = 0.2
 
     # reset the LSTM here so it doesn’t leak from the last trial
     z_prev = 0.0
@@ -292,9 +304,12 @@ while trial_idx < num_trials:
     done = False
 
     while not done:
+        # compute step-based epsilon
+        frac = min(1.0, iter_count / max(1, decay_trials))
+        eps  = eps_start + frac * (eps_end - eps_start)
         model.exploration_rate = eps
         model.logger.record("rollout/exploration_rate", eps)
-        # print(f"Trial {trial_idx+1}/{num_trials}, ε={eps:.3f}")
+        print(f"Trial {trial_idx+1}/{num_trials}, ε={eps:.3f}")
 
         # act
         action, _ = model.predict(obs, deterministic=False)
@@ -304,9 +319,35 @@ while trial_idx < num_trials:
 
         # hard sync
         if iter_count % model.target_update_interval == 0:
+            if iter_count > model.learning_starts:
+                update_size = min(50000, model.replay_buffer.size())
+                replay_data = model.replay_buffer.sample(update_size, env=model._vec_normalize_env)  # type: ignore[union-attr]
+                model.gain_adapter.adapt_gains(replay_data)
+                print("kd gain:", model.kd)
+
             model.policy.d_net.load_state_dict(model.policy.q_net_target.state_dict())
             model.policy.q_net_target.load_state_dict(model.policy.q_net.state_dict())
         iter_count += 1
+
+        
+
+        # self._n_calls += 1
+        # Account for multiple environments
+        # each call to step() corresponds to n_envs transitions
+        # if self._n_calls % max(self.target_update_interval // self.n_envs, 1) == 0:
+            # Update the gains here once we have started training
+            # if self._n_calls > self.learning_starts:
+            #     #self.gain_adapter.apply_weight_decay(self.replay_buffer)
+            #     update_size = 50000
+            #     update_size = min(update_size, self.replay_buffer.size())
+
+            #     replay_data = self.replay_buffer.sample(update_size, env=self._vec_normalize_env)  # type: ignore[union-attr]
+                
+            #     self.gain_adapter.adapt_gains(replay_data)
+            # update d net
+            # self.d_net.load_state_dict(self.q_net_target.state_dict())
+            # Update the target network
+            # self.q_net_target.load_state_dict(self.q_net.state_dict())
 
         # store transition
         trial_transitions.append((obs, action, next_obs, reward, done, info))
@@ -327,11 +368,22 @@ while trial_idx < num_trials:
             action_scalar = int(action)  
             a_t = torch.tensor([[action_scalar]], dtype=torch.long, device=model.device)
             kp, ki, kd, alpha, beta = model.gain_adapter.get_gains(obs_t, a_t, None)
-
+            
             # d) Q-values for TD‐error
             q_curr = model.policy.q_net(obs_t)[0, action].item()
             q_next = model.policy.q_net_target(next_t).max(dim=1)[0].item()
-            td_err = reward + (0.0 if done else model.gamma * q_next) - q_curr  # BRₜ
+            pd_target = q_curr + d_update
+            target = q_curr
+            
+            td_err = reward + (0.0 if done else model.gamma * q_next) - target  # BRₜ
+            td_error_PD = reward + (0.0 if done else model.gamma * q_next) - pd_target  # BRₜ without D
+            print("target no d:", target)
+            print("td err no d:", td_err)
+
+            print("d update:", d_update)
+            print("pd target with d:", pd_target)
+            
+            print("td_error_PD:", td_error_PD)
             # print("Q current:", q_curr, "Q next:", q_next, "TD Error:", td_err, "Reward:", reward, "Done:", done, "Action:", action_scalar)
 
             # e) integrator update
@@ -354,11 +406,7 @@ while trial_idx < num_trials:
         # update obs
         obs = next_obs
 
-    if outcome != "enl_break": 
-        trial_idx += 1 # update trial index
-        # compute step-based epsilon
-        frac = min(1.0, trial_idx / max(1, decay_trials))
-        eps  = eps_start + frac * (eps_end - eps_start)
+    if outcome != "enl_break": trial_idx += 1 # update trial index
 
     # 2) build a tiny buffer for exactly this trial
     N = len(trial_transitions)
