@@ -152,13 +152,13 @@ pid_params = {
     "kd": 1.0,                  # derivative gain
     "alpha": 0.05,              # meta-learning rate for gains
     "beta": 0.95,               # momentum term for meta updates
-    "d_tau": 1e-3,              # time constant for D component
+    "d_tau": 1,              # time constant for D component
     "tabular_d": False,         # use tabular D vs function-approx D
 
     "learning_rate": 1e-3,      # LR for value network
     "replay_memory_size": buffer_size,
     "batch_size": batch_size,
-    "tau": 0.5,                   # Polyak update coefficient
+    "tau": 1,                   # Polyak update coefficient
     "gamma": gamma,              # discount factor
     "gradient_steps": 1,
     "train_freq": 1,
@@ -304,8 +304,10 @@ while trial_idx < num_trials:
     done = False
 
     while not done:
+
         # compute step-based epsilon
         frac = min(1.0, iter_count / max(1, decay_trials))
+        iter_count += 1
         eps  = eps_start + frac * (eps_end - eps_start)
         model.exploration_rate = eps
         model.logger.record("rollout/exploration_rate", eps)
@@ -316,39 +318,10 @@ while trial_idx < num_trials:
         next_obs, reward, _, _, info = env.step(action)
         done = info["done"]
         outcome = info["outcome"]
-
-        # hard sync
-        if iter_count % model.target_update_interval == 0:
-            if iter_count > model.learning_starts:
-                update_size = min(50000, model.replay_buffer.size())
-                replay_data = model.replay_buffer.sample(update_size, env=model._vec_normalize_env)  # type: ignore[union-attr]
-                model.gain_adapter.adapt_gains(replay_data)
-                print("kd gain:", model.kd)
-
-            model.policy.d_net.load_state_dict(model.policy.q_net_target.state_dict())
-            model.policy.q_net_target.load_state_dict(model.policy.q_net.state_dict())
-        iter_count += 1
-
         
-
-        # self._n_calls += 1
-        # Account for multiple environments
-        # each call to step() corresponds to n_envs transitions
-        # if self._n_calls % max(self.target_update_interval // self.n_envs, 1) == 0:
-            # Update the gains here once we have started training
-            # if self._n_calls > self.learning_starts:
-            #     #self.gain_adapter.apply_weight_decay(self.replay_buffer)
-            #     update_size = 50000
-            #     update_size = min(update_size, self.replay_buffer.size())
-
-            #     replay_data = self.replay_buffer.sample(update_size, env=self._vec_normalize_env)  # type: ignore[union-attr]
-                
-            #     self.gain_adapter.adapt_gains(replay_data)
-            # update d net
-            # self.d_net.load_state_dict(self.q_net_target.state_dict())
-            # Update the target network
-            # self.q_net_target.load_state_dict(self.q_net.state_dict())
-
+        # update gains and sync networks
+        model._on_step()
+    
         # store transition
         trial_transitions.append((obs, action, next_obs, reward, done, info))
         
@@ -372,18 +345,7 @@ while trial_idx < num_trials:
             # d) Q-values for TD‐error
             q_curr = model.policy.q_net(obs_t)[0, action].item()
             q_next = model.policy.q_net_target(next_t).max(dim=1)[0].item()
-            pd_target = q_curr + d_update
-            target = q_curr
-            
-            td_err = reward + (0.0 if done else model.gamma * q_next) - target  # BRₜ
-            td_error_PD = reward + (0.0 if done else model.gamma * q_next) - pd_target  # BRₜ without D
-            print("target no d:", target)
-            print("td err no d:", td_err)
-
-            print("d update:", d_update)
-            print("pd target with d:", pd_target)
-            
-            print("td_error_PD:", td_error_PD)
+            td_err = reward + (0.0 if done else model.gamma * q_next) - q_curr  # BRₜ
             # print("Q current:", q_curr, "Q next:", q_next, "TD Error:", td_err, "Reward:", reward, "Done:", done, "Action:", action_scalar)
 
             # e) integrator update
@@ -422,7 +384,96 @@ while trial_idx < num_trials:
 # --------------------
 # Plot Summary Figure
 # --------------------
+    
+
 
 plot_figure(recorder,
             dt=0.1, pre_steps=pre_steps, post_steps=post_steps,
             tau_on=tau_on, tau_off=tau_off)
+
+
+# --------------------
+# Policy Evaluation and Value Iteration - doesn't work, issue with env.P
+# --------------------
+def policy_evaluation(env, policy, gamma=0.99, tol=1e-8, max_iters=10_000):
+    # Number of discrete states (here 2 phases × 2 cue states = 4)
+    S = 4  # or hardcode 4
+    V = np.zeros(S)                       # initialize value function
+
+    for it in range(max_iters):
+        delta = 0.0
+        V_new = np.zeros_like(V)
+
+        # Synchronous update for all states
+        for s in range(S):
+            a = policy[s]  # deterministic: single action per state
+            v_s = 0.0
+
+            # sum over all possible next‑states/transitions
+            for (prob, s_next, reward, done) in env.P[(s, a)]:
+                v_s += prob * (reward + gamma * V[s_next])
+
+            V_new[s] = v_s
+            delta = max(delta, abs(V[s] - v_s))
+
+        V[:] = V_new
+        if delta < tol:
+            break
+
+    return V
+
+def value_iteration(env, gamma=0.99, tol=1e-8, max_iters=10_000):
+    S = 4
+    A = 2  # e.g. 2
+    V = np.zeros(S)
+
+    for it in range(max_iters):
+        delta = 0.0
+        V_new = np.zeros_like(V)
+
+        for s in range(S):
+            # for each action, compute expected return
+            action_values = []
+            for a in range(A):
+                q_sa = 0.0
+                for (prob, s_next, reward, done) in env.P[(s, a)]:
+                    q_sa += prob * (reward + gamma * V[s_next])
+                action_values.append(q_sa)
+
+            V_new[s] = max(action_values)
+            delta = max(delta, abs(V[s] - V_new[s]))
+
+        V[:] = V_new
+        if delta < tol:
+            break
+
+    return V
+
+def make_test_fn(env, gamma=0.99, tol=1e-8):
+    # 1) get the true V* once
+    V_star = value_iteration(env, gamma=gamma, tol=tol)
+
+    # 2) discover your states
+    states = {s for (s, a) in env.P.keys()}
+    S = max(states) + 1
+
+    # 3) build an always-right policy for every state
+    #    (action "3" = "right") - phase=1, cue=1??
+    pi_right = {s: 3 for s in states}
+
+    # 4) the test function
+    def test_fn():
+        V_right = policy_evaluation(env, pi_right, gamma=gamma, tol=tol)
+        num = np.sum(np.abs(V_right - V_star))
+        den = np.sum(np.abs(V_star))
+        print("V*:", V_star)
+        print("Vπ:", V_right)
+        print("Δ:", V_star - V_right)
+        return num / den
+    
+
+    return test_fn
+
+test_fn = make_test_fn(env)
+rel_error = test_fn()
+print("Relative L1 error:", rel_error)
