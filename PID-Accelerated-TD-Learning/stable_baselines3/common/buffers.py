@@ -368,7 +368,7 @@ class OnlineReplayBuffer(ReplayBuffer):
         buffer_size: int,
         observation_space,
         action_space,
-        device: th.device,
+        device: Union[th.device, str] = "auto",
         n_envs: int = 1,
         optimize_memory_usage: bool = False,
         handle_timeout_termination: bool = True,
@@ -409,10 +409,10 @@ class OnlineReplayBuffer(ReplayBuffer):
         env=None,
         seq_len: int = None
     ):
-        # 1) pull out the base samples & indices exactly like SB3 does
         if seq_len is None:
-            base_batch = super().sample(batch_size, env=env)
-            idxs = base_batch.indices
+            # Generate indices manually
+            idxs = np.random.randint(0, self.size(), size=batch_size)
+            base_batch = self._get_samples(idxs, env=env)
         else:
             # truncated BPTT style: take the first `seq_len` of your buffer
             n    = self.size()
@@ -420,29 +420,36 @@ class OnlineReplayBuffer(ReplayBuffer):
             idxs = np.arange(L, dtype=int)
             base_batch = self._get_samples(idxs, env=env)
 
-        # 2) slice off your stored d & z
-        batch_ds = th.as_tensor(self.ds[idxs], device=self.device)  # [B or L, 1]
-        batch_zs = th.as_tensor(self.zs[idxs], device=self.device)  # [B or L, 1]
+        # Slice d & z using the sampled indices
+        batch_ds = th.as_tensor(self.ds[idxs], device=self.device)
+        batch_zs = th.as_tensor(self.zs[idxs], device=self.device)
 
-        # 3) turn the base namedtuple into a dict
+        # Turn the base namedtuple into a dict
         data = { field: getattr(base_batch, field) for field in base_batch._fields }
-        # 4) inject your two new tensors
+        # Inject your custom tensors
         data['ds'] = batch_ds
         data['zs'] = batch_zs
 
+        data['indices'] = idxs
+
+        # If using sequence mode, reshape accordingly
         if seq_len is not None:
             for field in ('observations','next_observations'):
                 arr = data[field]
                 if arr.ndim == 2:
-                    data[field] = arr[np.newaxis, ...]  # prepend batch=1
+                    data[field] = arr[np.newaxis, ...]
             for field in ('actions','rewards','dones','ds','zs'):
                 arr = data[field]
-                # actions might be [N,1], rewards [N], ds [N,1], zs [N,1], etc.
                 if arr.ndim == 1:
-                    data[field] = arr[np.newaxis, :]   # [1, N]
+                    data[field] = arr[np.newaxis, :]
                 elif arr.ndim == 2:
-                    data[field] = arr[np.newaxis, ...] # [1, N, ...]
+                    data[field] = arr[np.newaxis, ...]
         return SimpleNamespace(**data)
+    def update(self, indices, zs=None, ds=None):
+        if zs is not None:
+            self.zs[indices] = zs.cpu().numpy()
+        if ds is not None:
+            self.ds[indices] = ds.cpu().numpy()
 
 
 class RolloutBuffer(BaseBuffer):

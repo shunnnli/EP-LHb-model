@@ -5,117 +5,21 @@ if repo_path not in sys.path:
     sys.path.insert(0, repo_path)
 # from TabularPID.AgentBuilders.DQNBuilder import build_PID_DQN # not working for me
 from stable_baselines3.common.logger import configure
-from stable_baselines3.common.buffers import ReplayBuffer
+from stable_baselines3.common.buffers import OnlineReplayBuffer
 from TabularPID.Agents.DQN.DQN import PID_DQN
 from TabularPID.Agents.DQN.DQN_gain_adapter import NoGainAdapter, SingleGainAdapter, DiagonalGainAdapter, NetworkGainAdapter
 
 import numpy as np
-import random
-from collections import deque, namedtuple
-import matplotlib.pyplot as plt
 import gymnasium as gym
+import pickle
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 
 from OperantGym import OperantLearning
-from plotfunctions import plot_figure, get_traces
+from plotfunctions import plot_figure
 from recorder import SessionRecorder
-from types import SimpleNamespace
-from stable_baselines3.common.utils import zip_strict
-
-import pickle
-
-class OnlineReplayBuffer(ReplayBuffer):
-    def __init__(
-        self,
-        buffer_size: int,
-        observation_space,
-        action_space,
-        device: torch.device,
-        n_envs: int = 1,
-        optimize_memory_usage: bool = False,
-        handle_timeout_termination: bool = True,
-    ):
-        super().__init__(
-            buffer_size,
-            observation_space,
-            action_space,
-            device=device,
-            n_envs=n_envs,
-            optimize_memory_usage=optimize_memory_usage,
-            handle_timeout_termination=handle_timeout_termination,
-        )
-        # parallel arrays for d & z
-        self.ds = np.zeros((buffer_size, 1), dtype=np.float32)
-        self.zs = np.zeros((buffer_size, 1), dtype=np.float32)
-
-    def add(
-        self,
-        obs: np.ndarray,
-        next_obs: np.ndarray,
-        action: np.ndarray,
-        reward: np.ndarray,
-        done: bool,
-        infos: list,
-        d: np.ndarray,
-        z: np.ndarray,
-    ) -> None:
-        # write obs/next_obs/etc.
-        super().add(obs, next_obs, action, reward, done, infos)
-        idx = (self.pos - 1) % self.buffer_size
-        self.ds[idx, 0] = float(np.asarray(d).flatten()[0])
-        self.zs[idx, 0] = float(np.asarray(z).flatten()[0])
-
-    def sample(
-        self,
-        batch_size: int,
-        env=None,
-        seq_len: int = None
-    ):
-        if seq_len is None:
-            # Generate indices manually
-            idxs = np.random.randint(0, self.size(), size=batch_size)
-            base_batch = self._get_samples(idxs, env=env)
-        else:
-            # truncated BPTT style: take the first `seq_len` of your buffer
-            n    = self.size()
-            L    = min(seq_len, n)
-            idxs = np.arange(L, dtype=int)
-            base_batch = self._get_samples(idxs, env=env)
-
-        # Slice d & z using the sampled indices
-        batch_ds = torch.as_tensor(self.ds[idxs], device=self.device)
-        batch_zs = torch.as_tensor(self.zs[idxs], device=self.device)
-
-        # Turn the base namedtuple into a dict
-        data = { field: getattr(base_batch, field) for field in base_batch._fields }
-        # Inject your custom tensors
-        data['ds'] = batch_ds
-        data['zs'] = batch_zs
-
-        data['indices'] = idxs
-
-        # If using sequence mode, reshape accordingly
-        if seq_len is not None:
-            for field in ('observations','next_observations'):
-                arr = data[field]
-                if arr.ndim == 2:
-                    data[field] = arr[np.newaxis, ...]
-            for field in ('actions','rewards','dones','ds','zs'):
-                arr = data[field]
-                if arr.ndim == 1:
-                    data[field] = arr[np.newaxis, :]
-                elif arr.ndim == 2:
-                    data[field] = arr[np.newaxis, ...]
-        return SimpleNamespace(**data)
-    def update(self, indices, zs=None, ds=None):
-        if zs is not None:
-            self.zs[indices] = zs.cpu().numpy()
-        if ds is not None:
-            self.ds[indices] = ds.cpu().numpy()
-
 
 # --------------------
 # Hyperparameters
@@ -129,7 +33,7 @@ max_trial_steps  = pre_steps + post_steps
 omission_prob    = 0.05
 enl_duration     = (2.0, 4.0)  # seconds
 action_cost      = 0.05
-enl_penalty      = 0.05
+enl_penalty      = 0.1
 
 tau_on  = 0.01   # 10 ms
 tau_off = 0.1    # 100 ms
@@ -149,7 +53,7 @@ replaybuffer = OnlineReplayBuffer
 pid_params = {
     "kp": 1.0,                  # proportional gain
     "ki": 0.0,                  # integral gain
-    "kd": 1.0,                  # derivative gain
+    "kd": 0.3,                  # derivative gain
     "alpha": 0.05,              # meta-learning rate for gains
     "beta": 0.95,               # momentum term for meta updates
     "d_tau": 1,              # time constant for D component
@@ -167,10 +71,10 @@ pid_params = {
     'meta_lr': 1e-3,           # meta-learning rate for gains
     'epsilon_gain': 0.1,          # exploration rate for gains
 
-    "initial_eps": 0.7,
-    "exploration_fraction": 0.07,
+    "initial_eps": 0.1,
+    "exploration_fraction": 0.01, # smaller fraction for fast decay
     
-    "minimum_eps": 0.07,
+    "minimum_eps": 0.05,
     "learning_starts": 1000,
 
     "inner_size": 64,           # hidden layer size
@@ -265,11 +169,9 @@ model.set_logger(new_logger)
 recorder = SessionRecorder()
 
 # epsilon decay params
-eps_start    = pid_params["initial_eps"]
-eps_end      = pid_params["minimum_eps"]
-# max_num_iters = 40000
-max_num_iters = 20000
-
+eps_start   = pid_params["initial_eps"]
+eps_end     = pid_params["minimum_eps"]
+max_num_iters = 40000
 decay_trials = int(pid_params["exploration_fraction"] * max_num_iters)
 
 # Set up buffer
@@ -285,33 +187,26 @@ model.replay_buffer = OnlineReplayBuffer(
 # --------------------
 # Training Loop
 # --------------------
-
 obs, _ = env.reset()
 trial_idx = 0
 iter_count = 1
+eps = eps_start  # start with high exploration rate
 
 while trial_idx < num_trials:
-    print(f"Trial {trial_idx + 1}/{num_trials}")
-    if trial_idx > 50: # make omission prob higher after 50 trials
-        env.omission_prob = 0.2
+    print(f"Trial {trial_idx+1}/{num_trials}, ε={eps:.3f}")
 
-    # reset the LSTM here so it doesn’t leak from the last trial
+    # reset the network here so it doesn’t leak from the last trial
     z_prev = 0.0
     model.policy.q_net.reset_hidden(batch_size=batch_size)
 
     # 1) roll out one trial
-    trial_transitions = []
+    trial_timesteps = 0
     done = False
 
     while not done:
-
-        # compute step-based epsilon
-        frac = min(1.0, iter_count / max(1, decay_trials))
-        iter_count += 1
-        eps  = eps_start + frac * (eps_end - eps_start)
+        # Set exploration rate
         model.exploration_rate = eps
         model.logger.record("rollout/exploration_rate", eps)
-        print(f"Trial {trial_idx+1}/{num_trials}, ε={eps:.3f}")
 
         # act
         action, _ = model.predict(obs, deterministic=False)
@@ -321,11 +216,9 @@ while trial_idx < num_trials:
         
         # update gains and sync networks
         model._on_step()
-    
-        # store transition
-        trial_transitions.append((obs, action, next_obs, reward, done, info))
+        trial_timesteps += 1
         
-        # calculate d and z updates
+        # calculate d and z updates for replay buffer
         with torch.no_grad():
             # make observation tensor
             obs_t = torch.tensor(obs, device=model.device, dtype=torch.float32).unsqueeze(0) # [1, obs_dim]
@@ -368,25 +261,24 @@ while trial_idx < num_trials:
         # update obs
         obs = next_obs
 
-    if outcome != "enl_break": trial_idx += 1 # update trial index
-
-    # 2) build a tiny buffer for exactly this trial
-    N = len(trial_transitions)
+    if outcome != "enl_break": 
+        trial_idx += 1 # update trial index
+        # compute step-based epsilon
+        frac = min(1.0, trial_idx / max(1, decay_trials))
+        eps  = eps_start + frac * (eps_end - eps_start)
 
     # 4) do a single training step
-    model.train(batch_size=batch_size, seq_len=N, gradient_steps=gradient_steps)
+    model.train(batch_size=batch_size, seq_len=trial_timesteps, gradient_steps=gradient_steps)
     # record the *actual* PID-DQN update signal for this trial
     recorder.record_train(model)
 
     # 5) restore original buffer so you keep accumulating long-term experience
     model.replay_buffer = orig_buffer
 
+
 # --------------------
 # Plot Summary Figure
 # --------------------
-    
-
-
 plot_figure(recorder,
             dt=0.1, pre_steps=pre_steps, post_steps=post_steps,
             tau_on=tau_on, tau_off=tau_off)
