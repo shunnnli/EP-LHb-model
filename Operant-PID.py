@@ -234,6 +234,7 @@ while trial_idx < num_trials:
             action_scalar = int(action)  
             a_t = torch.tensor([[action_scalar]], dtype=torch.long, device=model.device)
             kp, ki, kd, alpha, beta = model.gain_adapter.get_gains(obs_t, a_t, None)
+            # print("Gains:", kp.item(), ki.item(), kd.item())
             
             # d) Q-values for TD‐error
             q_curr = model.policy.q_net(obs_t)[0, action].item()
@@ -257,7 +258,7 @@ while trial_idx < num_trials:
                                 )
         z_prev = z_update
         # record every timestep in the session trace
-        recorder.record_env_step(action, reward, next_obs, info, model=model)
+        recorder.record_env_step(trial_idx, action, reward, next_obs, info, model=model)
         # update obs
         obs = next_obs
 
@@ -270,7 +271,7 @@ while trial_idx < num_trials:
     # 4) do a single training step
     model.train(batch_size=batch_size, seq_len=trial_timesteps, gradient_steps=gradient_steps)
     # record the *actual* PID-DQN update signal for this trial
-    recorder.record_train(model)
+    # recorder.record_train(model)
 
     # 5) restore original buffer so you keep accumulating long-term experience
     model.replay_buffer = orig_buffer

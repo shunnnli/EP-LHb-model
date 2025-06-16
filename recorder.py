@@ -26,6 +26,8 @@ class SessionRecorder:
       recorder.record_train(model)
     """
     def __init__(self, lick_action=1):
+        self.trial_idx = []
+        
         # session‐by‐step logs
         self.td_errors = []
         self.licks     = []
@@ -46,7 +48,7 @@ class SessionRecorder:
         self.ki = []
         self.kd = []
 
-    def record_env_step(self, action, reward, new_obs, info, model=None):
+    def record_env_step(self, trial_idx, action, reward, new_obs, info, model=None):
         """Call right after env.step(...)"""
         # 1) compute instant TD‐error for _this_ transition
         td = 0.0
@@ -74,19 +76,18 @@ class SessionRecorder:
         self.losses   .append(model.logger.name_to_value.get("train/loss", 0.0))
         self.omissions.append(omission_flag)
 
-    def record_train(self, model):
-        """Call right after model.train(batch_size=..., gradient_steps=...)."""
-        # helper
+        # 4) record PID gains
         def mean_or_none(x):
             if x is None: return None
             arr = x.detach().cpu().numpy()
             return float(arr.mean())
-
+        
         # grab the raw PID‐DQN fields
         p  = getattr(model, "p_update", None)
         i  = getattr(model, "i_update", None)
         d  = getattr(model, "d_update", None)
         kp = getattr(model, "kp",       None)
+        if kp is None: print(model.kp)
         ki = getattr(model, "ki",       None)
         kd = getattr(model, "kd",       None)
         loss = getattr(model, "latest_loss", 0.0)
@@ -99,6 +100,9 @@ class SessionRecorder:
         self.ki.append(mean_or_none(ki))
         self.kd.append(mean_or_none(kd))
         self.losses.append(loss)
+
+        # 5) record the trial index
+        self.trial_idx.append(trial_idx)
 
 
 class SessionRecorderCallback(BaseCallback):
