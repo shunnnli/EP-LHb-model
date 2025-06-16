@@ -30,10 +30,10 @@ pre_steps        = 10    # 1 s @ 100 ms
 post_steps       = 40    # 5 s @ 100 ms
 max_trial_steps  = pre_steps + post_steps
 
-omission_prob    = 0.1
+omission_prob    = 0.05
 enl_duration     = (2.0, 4.0)  # seconds
-action_cost      = 0.05
-enl_penalty      = 0.1
+action_cost      = 0.1
+enl_penalty      = 0.2
 
 tau_on  = 0.01   # 10 ms
 tau_off = 0.1    # 100 ms
@@ -70,7 +70,7 @@ pid_params = {
     "target_update_interval": 10,
 
     "initial_eps": 0.1,
-    "exploration_fraction": 0.01, # smaller fraction for fast decay
+    "exploration_fraction": 0.001, # smaller fraction for fast decay
     
     "minimum_eps": 0.05,
     "learning_starts": 1000,
