@@ -11,7 +11,6 @@ from TabularPID.Agents.DQN.DQN_gain_adapter import NoGainAdapter, SingleGainAdap
 
 import numpy as np
 import gymnasium as gym
-import pickle
 
 import torch
 import torch.nn as nn
@@ -32,9 +31,8 @@ max_trial_steps  = pre_steps + post_steps
 
 omission_prob    = 0.1
 enl_duration     = (2.0, 4.0)  # seconds
-action_cost      = 0.05
-enl_penalty      = 0.1         # for individual licks during ENL
-
+action_cost      = 0.1
+enl_penalty      = 0.2
 enl_threshold   = 200          # for accumulated and consecutive ENL licks
 enl_punish_scale = 1.5         # scale for ENL punish
 
@@ -73,7 +71,7 @@ pid_params = {
     "target_update_interval": 10,
 
     "initial_eps": 0.1,
-    "exploration_fraction": 0.01, # smaller fraction for fast decay
+    "exploration_fraction": 0.001, # smaller fraction for fast decay
     
     "minimum_eps": 0.05,
     "learning_starts": 1000,

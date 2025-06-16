@@ -78,30 +78,57 @@ def fft(td_error, sample_rate):
     all_magnitudes = np.stack(all_magnitudes)
 
     return freqs, all_magnitudes
-    
+
+def get_amplitude(signal, window=None):
+    """Calculate the amplitude of a signal."""
+    if window is not None:
+        # print("Signal before windowing:", signal)
+        signal = signal[:,window[0]:window[1]]
+        # print("Signal after windowing:", signal)
+
+    maxPerTrial = np.max(signal, axis=1)
+    minPerTrial = np.min(signal, axis=1)
+    # Use the maximum absolute value for amplitude
+    # If max is greater than min, use max, otherwise use min
+    amp = np.where(np.abs(maxPerTrial) >= np.abs(minPerTrial),maxPerTrial,minPerTrial)
+    return amp
+
 def plot_figure(recorder,
                 tds_PD=None, tds_TD=None,
                 dt=0.1,
-                pre_steps=20, post_steps=30,
+                pre_steps=20, post_steps=30, cue_duration=0.5,
                 tau_on: float = 0.01, tau_off: float = 0.1, controller="TD"):
     
     # Load data from the recorder
-    td_errors = np.array(recorder.td_errors)
-    licks     = np.array(recorder.licks)
-    tones     = np.array(recorder.tones)
-    omissions = np.array(recorder.omissions)
+    td_errors = np.array(recorder.td_errors)[1:]
+    licks     = np.array(recorder.licks)[1:]
+    tones     = np.array(recorder.tones)[1:]
+    omissions = np.array(recorder.omissions)[1:]
 
-    rewards = np.array(recorder.rewards)
-    losses  = np.array(recorder.losses)
-    dones   = np.array(recorder.dones)
+    rewards = np.array(recorder.rewards)[1:]
+    losses  = np.array(recorder.losses)[1:]
+    dones   = np.array(recorder.dones)[1:]
 
-    p_history = np.array(recorder.p)
-    d_history = np.array(recorder.d)
-    i_history = np.array(recorder.i)
-    kp_history = np.array(recorder.kp)
-    ki_history = np.array(recorder.ki)
-    kd_history = np.array(recorder.kd)
-    update_history = kp_history * p_history + ki_history * i_history + kd_history * d_history
+    p_step = np.array(recorder.p)[1:]
+    d_step = np.array(recorder.d)[1:]
+    i_step = np.array(recorder.i)[1:]
+    kp_step = np.array(recorder.kp)[1:]
+    ki_step = np.array(recorder.ki)[1:]
+    kd_step = np.array(recorder.kd)[1:]
+    update_step = kp_step * p_step + ki_step * i_step + kd_step * d_step
+
+    # Get trial based history
+    trial_idx    = np.array(recorder.trial_idx)[1:]
+    num_trials   = trial_idx.max() + 1
+    reward_history = [rewards[trial_idx == t].sum() for t in range(num_trials)]
+
+    # Get PID parameters history
+    p_history = [p_step[trial_idx == t].mean() for t in range(num_trials)]
+    d_history = [d_step[trial_idx == t].mean() for t in range(num_trials)]
+    i_history = [i_step[trial_idx == t].mean() for t in range(num_trials)]
+    kp_history = [kp_step[trial_idx == t].mean() for t in range(num_trials)]
+    ki_history = [ki_step[trial_idx == t].mean() for t in range(num_trials)]
+    kd_history = [kd_step[trial_idx == t].mean() for t in range(num_trials)]
 
     # Align cue_licks and TD errors to the cue
     error = td_errors
@@ -109,12 +136,12 @@ def plot_figure(recorder,
     cue_error   = get_traces(error, tones, pre_steps, post_steps)
     cue_omissions = get_traces(omissions, tones, pre_steps, post_steps)
 
-    # Get reward and loss history
-    trial_ends = np.where(dones)[0]
-    trial_starts = np.concatenate(([0], trial_ends[:-1] + 1))
-    reward_history = [rewards[s : e + 1].sum() for s, e in zip(trial_starts, trial_ends)]
-    loss_history = [losses[s : e + 1].mean() for s, e in zip(trial_starts, trial_ends)]
-    
+    # Count anticipatory licks (lick number during cue window)
+    cue_steps = int(cue_duration / dt)
+    trial_anticipatory_licks = np.sum(cue_licks[:, pre_steps:pre_steps + cue_steps], axis=1)
+
+    # Get TD signal during the cue window
+    trial_TD_amplitude = get_amplitude(cue_error, window=(pre_steps, pre_steps + cue_steps))
 
     # ----------------------------------------------------------------------
     # Fill tds_PD and tds_TD with zeros if not provided
@@ -139,10 +166,7 @@ def plot_figure(recorder,
     dt = 0.1
     max_trial_steps = pre_steps + post_steps
     t_axis = np.linspace(-pre_steps * dt, (max_trial_steps - pre_steps) * dt, max_trial_steps + 1)
-
-
-    # number of trials
-    num_trials = cue_licks.shape[0]
+    trial_axis = np.arange(num_trials)+1
 
     # build DA kernel
     t_kernel = np.arange(0, 1.0, dt)  # 0–1 s
@@ -160,27 +184,20 @@ def plot_figure(recorder,
 
     # top‐left: Reward per trial
     ax0 = fig.add_subplot(gs[0, 0])
-    ax0.plot(reward_history)
+    ax0.plot(trial_axis,reward_history)
     ax0.set_title(f"Reward per trial ({controller})")
     ax0.set_xlabel("Trial")
     ax0.set_ylabel("Total Reward")
 
     # top-middle: Kp, Kd, Ki trace
     ax1 = fig.add_subplot(gs[0, 1])
-    ax1.plot(kp_history, label='Kp', color='tab:blue', alpha=0.7)
-    ax1.plot(ki_history, label='Ki', color='tab:orange', alpha=0.7)
-    ax1.plot(kd_history, label='Kd', color='tab:red', alpha=0.7)
+    ax1.plot(trial_axis,kp_history, label='Kp', color='tab:blue', alpha=0.7)
+    ax1.plot(trial_axis,ki_history, label='Ki', color='tab:orange', alpha=0.7)
+    ax1.plot(trial_axis,kd_history, label='Kd', color='tab:red', alpha=0.7)
     ax1.set_title(f"PID Parameters ({controller})")
     ax1.set_xlabel("Trial")
     ax1.set_ylabel("Parameter Value")
     ax1.legend(loc='upper left', fontsize=10, frameon=False)
-
-    # top‐middle: Loss per trial
-    # ax1 = fig.add_subplot(gs[0, 1])
-    # ax1.plot(loss_history)
-    # ax1.set_title(f"Loss per trial ({controller})")
-    # ax1.set_xlabel("Trial")
-    # ax1.set_ylabel("MSE Loss")
 
     # middle‐left: Lick raster (scatter)
     ax2 = fig.add_subplot(gs[1, 0])
@@ -216,28 +233,42 @@ def plot_figure(recorder,
     ax3.set_ylabel("TD Error")
     ax3.legend(loc='upper left', fontsize=10, frameon=False)
 
-    # bottom left: raw cue_error
+    # bottom left: lick number during cue per trial (i.e. anticipatory licking)
     ax4 = fig.add_subplot(gs[2, 0])
-    plotSEM(t_axis, tds_TD, omissions = None, label="TD Only", color='tab:blue', ax=ax4, alpha=0.3)
-    plotSEM(t_axis, tds_PD, omissions = None, label="With PD", color='tab:red', ax=ax4, alpha=0.3)
-    ymin, ymax = ax4.get_ylim()
-    ax4.fill_betweenx([ymin, ymax], 0, 0.5, color='tab:orange', alpha=0.2, edgecolor='None')
-    ax4.set_ylim(ymin, ymax)
-    ax4.set_title("TD vs PD TD Errors")
-    ax4.set_xlabel("Time (s)")
-    ax4.set_ylabel("TD Error")
-    ax4.legend(loc='upper left', fontsize=10, frameon=False)
+    ax4.plot(trial_axis, trial_anticipatory_licks, color='tab:blue')
+    ax4.set_title("Anticipatory licks")
+    ax4.set_xlabel("Trial")
+    ax4.set_ylabel("Lick Count")
+
+    # bottom right: amplitude of TD error during cue
+    ax5 = fig.add_subplot(gs[2, 1])
+    ax5.plot(trial_axis, trial_TD_amplitude, color='tab:orange')
+    ax5.set_title("Amplitude of TD error during cue")
+    ax5.set_xlabel("Trial")
+    ax5.set_ylabel("Amplitude")
+
+    # bottom left: raw cue_error
+    # ax4 = fig.add_subplot(gs[2, 0])
+    # plotSEM(t_axis, tds_TD, omissions = None, label="TD Only", color='tab:blue', ax=ax4, alpha=0.3)
+    # plotSEM(t_axis, tds_PD, omissions = None, label="With PD", color='tab:red', ax=ax4, alpha=0.3)
+    # ymin, ymax = ax4.get_ylim()
+    # ax4.fill_betweenx([ymin, ymax], 0, 0.5, color='tab:orange', alpha=0.2, edgecolor='None')
+    # ax4.set_ylim(ymin, ymax)
+    # ax4.set_title("TD vs PD TD Errors")
+    # ax4.set_xlabel("Time (s)")
+    # ax4.set_ylabel("TD Error")
+    # ax4.legend(loc='upper left', fontsize=10, frameon=False)
 
     # bottom middle: FFT
-    ax5 = fig.add_subplot(gs[2, 1])
-    td_freqs, td_magnitudes = fft(td_error = tds_TD, sample_rate = 50)
-    pd_freqs, pd_magnitudes = fft(td_error = tds_PD, sample_rate = 50)
-    plotSEM(pd_freqs, pd_magnitudes,label='PD', color='tab:blue', ax=ax5, alpha=0.3)
-    plotSEM(td_freqs, td_magnitudes, omissions = None, label='TD', color='tab:orange', ax=ax5, alpha=0.3)
-    ax5.set_xlabel("Frequency")
-    ax5.set_ylabel("Magnitude")
-    ax5.set_title("FFT of TD Errors")
-    ax5.legend(loc='upper right', fontsize=10, frameon=False)
+    # ax5 = fig.add_subplot(gs[2, 1])
+    # td_freqs, td_magnitudes = fft(td_error = tds_TD, sample_rate = 50)
+    # pd_freqs, pd_magnitudes = fft(td_error = tds_PD, sample_rate = 50)
+    # plotSEM(pd_freqs, pd_magnitudes,label='PD', color='tab:blue', ax=ax5, alpha=0.3)
+    # plotSEM(td_freqs, td_magnitudes, omissions = None, label='TD', color='tab:orange', ax=ax5, alpha=0.3)
+    # ax5.set_xlabel("Frequency")
+    # ax5.set_ylabel("Magnitude")
+    # ax5.set_title("FFT of TD Errors")
+    # ax5.legend(loc='upper right', fontsize=10, frameon=False)
 
     # the new heatmap, spanning both rows in column 3
     ax_heat = fig.add_subplot(gs[:, 2])
