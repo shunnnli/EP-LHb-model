@@ -26,21 +26,24 @@ from recorder import SessionRecorder
 # --------------------
 pairing          = 'reward'
 num_trials       = 200
-pre_steps        = 10    # 1 s @ 100 ms
-post_steps       = 40    # 5 s @ 100 ms
+pre_steps        = 10           # 1 s @ 100 ms
+post_steps       = 40           # 5 s @ 100 ms
 max_trial_steps  = pre_steps + post_steps
 
 omission_prob    = 0.1
 enl_duration     = (2.0, 4.0)  # seconds
 action_cost      = 0.05
-enl_penalty      = 0.1
+enl_penalty      = 0.1         # for individual licks during ENL
 
-tau_on  = 0.01   # 10 ms
-tau_off = 0.1    # 100 ms
+enl_threshold   = 200          # for accumulated and consecutive ENL licks
+enl_punish_scale = 1.5         # scale for ENL punish
 
-gradient_steps = 10  # how many gradient steps to do per trial
-gamma = 0.95  # discount factor for the DQN
-n_step_td = 20  # n-step TD learning
+tau_on  = 0.01                 # 10 ms
+tau_off = 0.1                  # 100 ms
+
+gradient_steps = 10            # how many gradient steps to do per trial
+gamma = 0.95                   # discount factor for the DQN
+n_step_td = 20                 # n-step TD learning
 
 batch_training = False
 batch_size = 64 if batch_training else 1
@@ -189,6 +192,7 @@ obs, _ = env.reset()
 trial_idx = 0
 iter_count = 1
 eps = eps_start  # start with high exploration rate
+enl_count = 0
 
 while trial_idx < num_trials:
     print(f"Trial {trial_idx+1}/{num_trials}, ε={eps:.3f}")
@@ -200,6 +204,7 @@ while trial_idx < num_trials:
     # 1) roll out one trial
     trial_timesteps = 0
     done = False
+    
 
     while not done:
         # Set exploration rate
@@ -211,7 +216,11 @@ while trial_idx < num_trials:
         next_obs, reward, _, _, info = env.step(action)
         done = info["done"]
         outcome = info["outcome"]
-        
+
+        # punish if stuck in ENL for > 200 steps
+        enl_count = enl_count + 1 if outcome and "enl" in outcome else 0
+        reward -= max(enl_count - enl_threshold, 0) * enl_punish_scale
+
         # update gains and sync networks
         model._on_step()
         trial_timesteps += 1
