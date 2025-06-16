@@ -255,7 +255,7 @@ def plot_figure(recorder,
     ax_heat.set_xlabel("Time (s)")
     ax_heat.set_ylabel("Trial")
     ax_heat.invert_yaxis()   # so Trial 1 is at top
-    cbar = fig.colorbar(im, ax=ax_heat, orientation='vertical', label='TD Error')
+    fig.colorbar(im, ax=ax_heat, orientation='vertical', label='TD Error')
 
     # Tighten layout and show
     fig.subplots_adjust(left=0.05, right=0.98, top=0.95, bottom=0.07)
