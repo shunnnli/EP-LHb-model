@@ -30,7 +30,7 @@ pre_steps        = 10    # 1 s @ 100 ms
 post_steps       = 40    # 5 s @ 100 ms
 max_trial_steps  = pre_steps + post_steps
 
-omission_prob    = 0.05
+omission_prob    = 0.1
 enl_duration     = (2.0, 4.0)  # seconds
 action_cost      = 0.05
 enl_penalty      = 0.1
@@ -48,15 +48,16 @@ buffer_size = 100000 if batch_training else 1
 replaybuffer = OnlineReplayBuffer
 
 
-
 # PID-DQN parameters
 pid_params = {
     "kp": 1.0,                  # proportional gain
     "ki": 0.0,                  # integral gain
-    "kd": 0.3,                  # derivative gain
-    "alpha": 0.05,              # meta-learning rate for gains
-    "beta": 0.95,               # momentum term for meta updates
-    "d_tau": 1,              # time constant for D component
+    "kd": 0.0,                  # derivative gain
+    'meta_lr': 0,               # meta-learning rate for gains
+    'epsilon_gain': 0.1,        # exploration rate for gains
+    "alpha": 0.05,              # i update coefficient
+    "beta": 0.95,               # i update coefficient
+    "d_tau": 1,                 # time constant for D component
     "tabular_d": False,         # use tabular D vs function-approx D
 
     "learning_rate": 1e-3,      # LR for value network
@@ -68,9 +69,6 @@ pid_params = {
     "train_freq": 1,
     "target_update_interval": 10,
 
-    'meta_lr': 1e-3,           # meta-learning rate for gains
-    'epsilon_gain': 0.1,          # exploration rate for gains
-
     "initial_eps": 0.1,
     "exploration_fraction": 0.01, # smaller fraction for fast decay
     
@@ -81,7 +79,7 @@ pid_params = {
     "dump_buffer": False,
     "is_double": False,
     "policy_evaluation": False,
-    "seed": 42,
+    "seed": 26,
 }
 
 # --------------------
