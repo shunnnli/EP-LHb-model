@@ -97,7 +97,8 @@ def plot_figure(recorder,
                 tds_PD=None, tds_TD=None,
                 dt=0.1,
                 pre_steps=20, post_steps=30, cue_duration=0.5,
-                tau_on: float = 0.01, tau_off: float = 0.1, controller="TD"):
+                tau_on: float = 0.01, tau_off: float = 0.1, 
+                save: bool = False, save_path: str = "session-summary.png"):
     
     # Load data from the recorder
     td_errors = np.array(recorder.td_errors)[1:]
@@ -185,7 +186,7 @@ def plot_figure(recorder,
     # top‐left: Reward per trial
     ax0 = fig.add_subplot(gs[0, 0])
     ax0.plot(trial_axis,reward_history)
-    ax0.set_title(f"Reward per trial ({controller})")
+    ax0.set_title(f"Reward per trial")
     ax0.set_xlabel("Trial")
     ax0.set_ylabel("Total Reward")
 
@@ -194,7 +195,7 @@ def plot_figure(recorder,
     ax1.plot(trial_axis,kp_history, label='Kp', color='tab:blue', alpha=0.7)
     ax1.plot(trial_axis,ki_history, label='Ki', color='tab:orange', alpha=0.7)
     ax1.plot(trial_axis,kd_history, label='Kd', color='tab:red', alpha=0.7)
-    ax1.set_title(f"PID Parameters ({controller})")
+    ax1.set_title(f"PID Parameters")
     ax1.set_xlabel("Trial")
     ax1.set_ylabel("Parameter Value")
     ax1.legend(loc='upper left', fontsize=10, frameon=False)
@@ -213,7 +214,7 @@ def plot_figure(recorder,
                         color='tab:blue', s=10, marker='o', alpha=0.8, edgecolor='none')
     # mark cue window
     ax2.fill_betweenx([0, num_trials+1], 0, 0.5, color='tab:orange', alpha=0.2, edgecolor='None')
-    ax2.set_title(f"Lick raster ({controller})")
+    ax2.set_title(f"Lick raster")
     ax2.set_xlabel("Time (s)")
     ax2.set_ylabel("Trial")
     ax2.set_xlim(t_axis[0], t_axis[-1])
@@ -228,7 +229,7 @@ def plot_figure(recorder,
     ymin, ymax = ax3.get_ylim()
     ax3.fill_betweenx([ymin, ymax], 0, 0.5, color='tab:orange', alpha=0.2, edgecolor='None')
     ax3.set_ylim(ymin, ymax)
-    ax3.set_title(f"TD error vs time ({controller})")
+    ax3.set_title(f"TD error vs time")
     ax3.set_xlabel("Time (s)")
     ax3.set_ylabel("TD Error")
     ax3.legend(loc='upper left', fontsize=10, frameon=False)
@@ -290,4 +291,8 @@ def plot_figure(recorder,
 
     # Tighten layout and show
     fig.subplots_adjust(left=0.05, right=0.98, top=0.95, bottom=0.07)
-    plt.show()
+
+    # Save the figure if requested
+    if save:
+        fig.savefig(save_path, dpi=300, bbox_inches='tight')
+        # print(f"Figure saved to {save_path}")

@@ -23,75 +23,74 @@ from recorder import SessionRecorder
 # --------------------
 # Hyperparameters
 # --------------------
-pairing          = 'reward'
-num_trials       = 200
-pre_steps        = 10           # 1 s @ 100 ms
-post_steps       = 40           # 5 s @ 100 ms
-max_trial_steps  = pre_steps + post_steps
+session_params = {
+    "pairing":          'reward',
+    "num_trials":       200,
+    "pre_steps":        10,           # 1 s @ 100 ms
+    "post_steps":       40,           # 5 s @ 100 ms
+    "enl_duration":     (2.0, 4.0),   # seconds
+    "tau_on":           0.01,         # 10 ms
+    "tau_off":          0.1,          # 100 ms
 
-omission_prob    = 0.1
-enl_duration     = (2.0, 4.0)  # seconds
-action_cost      = 0.1
-enl_penalty      = 0.2
-enl_threshold   = 200          # for accumulated and consecutive ENL licks
-enl_punish_scale = 1.5         # scale for ENL punish
+    "omission_prob":    0.2,
+    "action_cost":      0.1,
+    "enl_penalty":      0.2,
+    "enl_threshold":    200,          # for accumulated & consecutive ENL licks
+    "enl_punish_scale": 0.1,
 
-tau_on  = 0.01                 # 10 ms
-tau_off = 0.1                  # 100 ms
-
-gradient_steps = 10            # how many gradient steps to do per trial
-gamma = 0.95                   # discount factor for the DQN
-n_step_td = 20                 # n-step TD learning
-
-batch_training = False
-batch_size = 64 if batch_training else 1
-buffer_size = 100000 if batch_training else 1
-replaybuffer = OnlineReplayBuffer
+    "gradient_steps":   10,           # how many rollout‐training steps per trial
+    "gamma":            0.95,         # discount factor
+    "batch_training":   False,
+    "batch_size":       64 if False else 1,
+    "buffer_size":      100_000 if False else 1,
+    "dt":               0.1,          # 100 ms
+}
 
 
 # PID-DQN parameters
 pid_params = {
-    "kp": 1.0,                  # proportional gain
-    "ki": 0.0,                  # integral gain
-    "kd": 0.0,                  # derivative gain
-    'meta_lr': 0,               # meta-learning rate for gains
-    'epsilon_gain': 0.1,        # exploration rate for gains
-    "alpha": 0.05,              # i update coefficient
-    "beta": 0.95,               # i update coefficient
-    "d_tau": 1,                 # time constant for D component
-    "tabular_d": False,         # use tabular D vs function-approx D
+    "kp": 1.0,
+    "ki": 0.0,
+    "kd": 0.3,
+    "meta_lr": 0,
+    "epsilon_gain": 0.1,
+    "alpha": 0.05,
+    "beta": 0.95,
+    "d_tau": 1,
+    "tabular_d": False,
 
-    "learning_rate": 1e-3,      # LR for value network
-    "replay_memory_size": buffer_size,
-    "batch_size": batch_size,
-    "tau": 1,                   # Polyak update coefficient
-    "gamma": gamma,              # discount factor
+    "learning_rate": 1e-3,
+    "replay_memory_size": session_params["buffer_size"],
+    "batch_size": session_params["batch_size"],
+    "tau": 1,
+    "gamma": session_params["gamma"],
     "gradient_steps": 1,
     "train_freq": 1,
     "target_update_interval": 10,
-
     "initial_eps": 0.1,
-    "exploration_fraction": 0.001, # smaller fraction for fast decay
-    
+    "exploration_fraction": 0.001,
     "minimum_eps": 0.05,
     "learning_starts": 1000,
-
-    "inner_size": 64,           # hidden layer size
+    "inner_size": 64,
     "dump_buffer": False,
     "is_double": False,
     "policy_evaluation": False,
     "seed": 26,
 }
 
+# Other params
+replaybuffer = OnlineReplayBuffer
+max_trial_steps = session_params["pre_steps"] + session_params["post_steps"]
+
 # --------------------
 # Setup
 # --------------------
 env = OperantLearning(
-    pairing=pairing,
-    omission_prob=omission_prob,
-    enl_duration=enl_duration,
-    action_cost=action_cost,
-    enl_penalty=enl_penalty,
+    pairing=session_params["pairing"],
+    omission_prob=session_params["omission_prob"],
+    enl_duration=session_params["enl_duration"],
+    action_cost=session_params["action_cost"],
+    enl_penalty=session_params["enl_penalty"],
     detection_delay=1,
 )
 
@@ -186,9 +185,16 @@ model.replay_buffer = OnlineReplayBuffer(
 # --------------------
 # Training Loop
 # --------------------
+
+# Unpack some session parameters
+num_trials = session_params["num_trials"]
+batch_size = session_params["batch_size"]
+enl_threshold = session_params["enl_threshold"]
+enl_punish_scale = session_params["enl_punish_scale"]
+gradient_steps = session_params["gradient_steps"]
+
 obs, _ = env.reset()
 trial_idx = 0
-iter_count = 1
 eps = eps_start  # start with high exploration rate
 enl_count = 0
 
@@ -275,8 +281,6 @@ while trial_idx < num_trials:
 
     # 4) do a single training step
     model.train(batch_size=batch_size, seq_len=trial_timesteps, gradient_steps=gradient_steps)
-    # record the *actual* PID-DQN update signal for this trial
-    # recorder.record_train(model)
 
     # 5) restore original buffer so you keep accumulating long-term experience
     model.replay_buffer = orig_buffer
@@ -285,6 +289,5 @@ while trial_idx < num_trials:
 # --------------------
 # Plot Summary Figure
 # --------------------
-plot_figure(recorder,
-            dt=0.1, pre_steps=pre_steps, post_steps=post_steps,
-            tau_on=tau_on, tau_off=tau_off)
+plot_figure(recorder, dt=session_params["dt"], 
+            pre_steps=session_params["pre_steps"], post_steps=session_params["post_steps"])

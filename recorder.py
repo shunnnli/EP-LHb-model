@@ -78,7 +78,7 @@ class SessionRecorder:
 
         # 4) record PID gains
         def mean_or_none(x):
-            if x is None: return None
+            if x is None: return 0.0
             arr = x.detach().cpu().numpy()
             return float(arr.mean())
         
@@ -87,7 +87,6 @@ class SessionRecorder:
         i  = getattr(model, "i_update", None)
         d  = getattr(model, "d_update", None)
         kp = getattr(model, "kp",       None)
-        if kp is None: print(model.kp)
         ki = getattr(model, "ki",       None)
         kd = getattr(model, "kd",       None)
         loss = getattr(model, "latest_loss", 0.0)

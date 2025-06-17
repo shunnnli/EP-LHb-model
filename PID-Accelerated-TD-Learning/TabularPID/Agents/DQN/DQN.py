@@ -389,6 +389,7 @@ class PID_DQN(OffPolicyAlgorithm):
             # 6) one‐shot loss over full sequence
             q_pred = th.cat(q_pred_seq, dim=1)         # [B, L]
             target = th.cat(target_seq, dim=1)         # [B, L]
+            target = target.view_as(q_pred)   # reshape target to exactly q_pred’s shape
             loss   = F.smooth_l1_loss(q_pred, target)
             losses.append(loss.item())
 
