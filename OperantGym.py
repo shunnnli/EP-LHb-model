@@ -24,7 +24,8 @@ class OperantLearning(gym.Env):
                  enl_duration: tuple[float, float] = (2.0, 4.0),
                  action_cost: float = 0.1, enl_penalty: float = 0.01,
                  detection_delay: int = 0,
-                 render_mode: str = None):
+                 render_mode: str = None,
+                 print: bool = False):
         super().__init__()
         # Actions: 0 = no lick, 1 = lick
         self.action_space = spaces.Discrete(2)
@@ -60,6 +61,8 @@ class OperantLearning(gym.Env):
         # Fake render mode
         self.render_mode = render_mode
         self._screen = None
+
+        self.print = print  # whether to print debug info
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -113,6 +116,7 @@ class OperantLearning(gym.Env):
         terminated = False
         truncated = False
         info = {}
+        print = self.print
 
         # Incur action cost for licking
         if action == 1:
@@ -131,7 +135,6 @@ class OperantLearning(gym.Env):
                     "outcome": "enl_break",
                 }
                 self._reset_trial()
-                # print("     ENL reset")
             else:
                 self.time += 1
                 if self.time >= self.enl_duration:
@@ -146,7 +149,7 @@ class OperantLearning(gym.Env):
                         "done": False,
                         "outcome": "trial_start",
                     }
-                    print("     Cue ON")
+                    if print: print("     Cue ON")
                 else:
                     info = {
                         "lick": len(self.lick_buffer),
@@ -182,7 +185,7 @@ class OperantLearning(gym.Env):
                         self._pending_reset_steps = self.detection_delay
                     else:
                         self._reset_trial()
-                    print("     Big outcome delivered")
+                    if print: print("     Big outcome delivered")
 
                 # Check end of response window for small outcome
                 elif self.time >= 20 and self.outcome_type is None:
@@ -201,7 +204,7 @@ class OperantLearning(gym.Env):
                         self._pending_reset_steps = self.detection_delay
                     else:
                         self._reset_trial()
-                    print("     Small outcome delivered")
+                    if print: print("     Small outcome delivered")
 
             else:
                 info = {

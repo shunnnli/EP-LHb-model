@@ -97,7 +97,9 @@ def load_recorder_data(recorder,
                 tds_PD=None, tds_TD=None,
                 dt=0.1,
                 pre_steps=20, post_steps=30, cue_duration=0.5,
-                tau_on: float = 0.01, tau_off: float = 0.1, ):
+                tau_on: float = 0.01, tau_off: float = 0.1, 
+                save: bool = False, save_path: str = "session-summary.png"):
+    
     # Load data from the recorder
     td_errors = np.array(recorder.td_errors)[1:]
     licks     = np.array(recorder.licks)[1:]
