@@ -313,7 +313,7 @@ if __name__ == "__main__":
             rec = train_once(sp, pp)
             # Plot and save summary figure
             plot_figure(rec, dt=sp["dt"], pre_steps=sp["pre_steps"], post_steps=sp["post_steps"],
-                        save=True, save_path=f"PID-results/{today}-{batch_name}/kd_{kd}_omit_{omit}_repeat_{r}.png")
+                        save=True, save_path=f"PID-results/{today}-{batch_name}/kd_{kd}_omit_{omit}_seed_{pp['seed']}.png")
 
             # Store both params and recorder
             results[(kd, omit, r)] = {
