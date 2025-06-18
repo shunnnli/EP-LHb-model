@@ -91,6 +91,7 @@ def set_global_seeds(seed: int):
     torch.backends.cudnn.benchmark = False
     # PID seed
     base_pid_params["seed"] = seed
+    pp["seed"] = seed
 
 def train_once(session_params, pid_params):
     # --- Build env, model, recorder ---
@@ -175,6 +176,8 @@ def train_once(session_params, pid_params):
     pbar = tqdm(total=num_trials,
                 desc=f"Trials (kd={pid_params['kd']}, omit={session_params['omission_prob']}, seed={pid_params['seed']})",
                 unit="trial")
+
+    print("seed", pid_params["seed"])
 
     obs, _ = env.reset()
     trial_idx = 0
@@ -275,7 +278,7 @@ if __name__ == "__main__":
     # kd_values        = [0, 0.1, 0.2 , 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
     # omission_probs   = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
 
-    kd_values        = [0.3]  # Reduced for faster testing
+    kd_values        = [0.3, 0.4]  # Reduced for faster testing
     omission_probs   = [0.2]  # Reduced for faster testing
     repeats          = 2  # Number of repeats for each combination
 
@@ -296,9 +299,6 @@ if __name__ == "__main__":
 
     # Loop through all combinations of kd and omission_prob
     for kd, omit in itertools.product(kd_values, omission_probs):
-        # Set global seed for reproducibility
-        set_global_seeds(random.randint(0, 10000))
-
         # Create copies of the base parameters for each sweep iteration
         sp = copy.deepcopy(base_session_params)
         pp = copy.deepcopy(base_pid_params)
@@ -307,6 +307,11 @@ if __name__ == "__main__":
 
         print(f"\n=== Running sweep: kd={kd}, omission_prob={omit} ===")
         for r in range(repeats):
+            # Set global seed for reproducibility
+            new_seed = random.randint(0, 10000)
+            set_global_seeds(new_seed)
+            pp["seed"] = new_seed
+
             # Train once with the current parameters
             print(f"Training with kd={kd}, omission_prob={omit} (repeat {r + 1}/{repeats})")
             # Call the training function
