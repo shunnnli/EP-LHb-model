@@ -93,7 +93,7 @@ def get_amplitude(signal, window=None):
     amp = np.where(np.abs(maxPerTrial) >= np.abs(minPerTrial),maxPerTrial,minPerTrial)
     return amp
 
-def plot_figure(recorder,
+def load_recorder_data(recorder,
                 tds_PD=None, tds_TD=None,
                 dt=0.1,
                 pre_steps=20, post_steps=30, cue_duration=0.5,
@@ -178,6 +178,43 @@ def plot_figure(recorder,
         np.convolve(trial_tds, kernel, mode='full')[:cue_error.shape[1]]
         for trial_tds in cue_error
     ], axis=0)
+
+    return num_trials, reward_history, kp_history, ki_history, kd_history, cue_licks, cue_error, cue_omissions, trial_anticipatory_licks, trial_TD_amplitude, t_axis, trial_axis
+
+
+
+def plot_figure(recorder,
+                tds_PD=None, tds_TD=None,
+                dt=0.1,
+                pre_steps=20, post_steps=30, cue_duration=0.5,
+                tau_on: float = 0.01, tau_off: float = 0.1, 
+                save: bool = False, save_path: str = "session-summary.png"):
+    
+
+    # load recorder data
+    (   num_trials,
+        reward_history,
+        kp_history,
+        ki_history,
+        kd_history,
+        cue_licks,
+        cue_error,
+        cue_omissions,
+        trial_anticipatory_licks,
+        trial_TD_amplitude,
+        t_axis,
+        trial_axis
+    ) = load_recorder_data(
+        recorder,
+        tds_PD=tds_PD,
+        tds_TD=tds_TD,
+        dt=dt,
+        pre_steps=pre_steps,
+        post_steps=post_steps,
+        cue_duration=cue_duration,
+        tau_on=tau_on,
+        tau_off=tau_off
+    )
 
     # Plotting
     fig = plt.figure(figsize=(14, 8))
