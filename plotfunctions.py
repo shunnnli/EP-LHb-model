@@ -93,12 +93,11 @@ def get_amplitude(signal, window=None):
     amp = np.where(np.abs(maxPerTrial) >= np.abs(minPerTrial),maxPerTrial,minPerTrial)
     return amp
 
-def plot_figure(recorder,
+def load_recorder_data(recorder,
                 tds_PD=None, tds_TD=None,
                 dt=0.1,
                 pre_steps=20, post_steps=30, cue_duration=0.5,
-                tau_on: float = 0.01, tau_off: float = 0.1, controller="TD"):
-    
+                tau_on: float = 0.01, tau_off: float = 0.1, ):
     # Load data from the recorder
     td_errors = np.array(recorder.td_errors)[1:]
     licks     = np.array(recorder.licks)[1:]
@@ -178,6 +177,43 @@ def plot_figure(recorder,
         for trial_tds in cue_error
     ], axis=0)
 
+    return num_trials, reward_history, kp_history, ki_history, kd_history, cue_licks, cue_error, cue_omissions, trial_anticipatory_licks, trial_TD_amplitude, t_axis, trial_axis
+
+
+
+def plot_figure(recorder,
+                tds_PD=None, tds_TD=None,
+                dt=0.1,
+                pre_steps=20, post_steps=30, cue_duration=0.5,
+                tau_on: float = 0.01, tau_off: float = 0.1, 
+                save: bool = False, save_path: str = "session-summary.png"):
+    
+
+    # load recorder data
+    (   num_trials,
+        reward_history,
+        kp_history,
+        ki_history,
+        kd_history,
+        cue_licks,
+        cue_error,
+        cue_omissions,
+        trial_anticipatory_licks,
+        trial_TD_amplitude,
+        t_axis,
+        trial_axis
+    ) = load_recorder_data(
+        recorder,
+        tds_PD=tds_PD,
+        tds_TD=tds_TD,
+        dt=dt,
+        pre_steps=pre_steps,
+        post_steps=post_steps,
+        cue_duration=cue_duration,
+        tau_on=tau_on,
+        tau_off=tau_off
+    )
+
     # Plotting
     fig = plt.figure(figsize=(14, 8))
     gs  = GridSpec(3, 3, figure=fig, width_ratios=[1, 1, 1.2], height_ratios=[1, 1, 0.7], wspace=0.2, hspace=0.4)
@@ -185,7 +221,7 @@ def plot_figure(recorder,
     # top‐left: Reward per trial
     ax0 = fig.add_subplot(gs[0, 0])
     ax0.plot(trial_axis,reward_history)
-    ax0.set_title(f"Reward per trial ({controller})")
+    ax0.set_title(f"Reward per trial")
     ax0.set_xlabel("Trial")
     ax0.set_ylabel("Total Reward")
 
@@ -194,7 +230,7 @@ def plot_figure(recorder,
     ax1.plot(trial_axis,kp_history, label='Kp', color='tab:blue', alpha=0.7)
     ax1.plot(trial_axis,ki_history, label='Ki', color='tab:orange', alpha=0.7)
     ax1.plot(trial_axis,kd_history, label='Kd', color='tab:red', alpha=0.7)
-    ax1.set_title(f"PID Parameters ({controller})")
+    ax1.set_title(f"PID Parameters")
     ax1.set_xlabel("Trial")
     ax1.set_ylabel("Parameter Value")
     ax1.legend(loc='upper left', fontsize=10, frameon=False)
@@ -213,7 +249,7 @@ def plot_figure(recorder,
                         color='tab:blue', s=10, marker='o', alpha=0.8, edgecolor='none')
     # mark cue window
     ax2.fill_betweenx([0, num_trials+1], 0, 0.5, color='tab:orange', alpha=0.2, edgecolor='None')
-    ax2.set_title(f"Lick raster ({controller})")
+    ax2.set_title(f"Lick raster")
     ax2.set_xlabel("Time (s)")
     ax2.set_ylabel("Trial")
     ax2.set_xlim(t_axis[0], t_axis[-1])
@@ -228,7 +264,7 @@ def plot_figure(recorder,
     ymin, ymax = ax3.get_ylim()
     ax3.fill_betweenx([ymin, ymax], 0, 0.5, color='tab:orange', alpha=0.2, edgecolor='None')
     ax3.set_ylim(ymin, ymax)
-    ax3.set_title(f"TD error vs time ({controller})")
+    ax3.set_title(f"TD error vs time")
     ax3.set_xlabel("Time (s)")
     ax3.set_ylabel("TD Error")
     ax3.legend(loc='upper left', fontsize=10, frameon=False)
@@ -290,4 +326,8 @@ def plot_figure(recorder,
 
     # Tighten layout and show
     fig.subplots_adjust(left=0.05, right=0.98, top=0.95, bottom=0.07)
-    plt.show()
+
+    # Save the figure if requested
+    if save:
+        fig.savefig(save_path, dpi=300, bbox_inches='tight')
+        # print(f"Figure saved to {save_path}")
