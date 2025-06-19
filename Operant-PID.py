@@ -32,7 +32,7 @@ session_params = {
     "tau_on":           0.01,         # 10 ms
     "tau_off":          0.1,          # 100 ms
 
-    "omission_prob":    0.2,
+    "omission_prob":    0.3,
     "action_cost":      0.1,
     "enl_penalty":      0.2,
     "enl_threshold":    200,          # for accumulated & consecutive ENL licks
@@ -51,7 +51,7 @@ session_params = {
 pid_params = {
     "kp": 1.0,
     "ki": 0.0,
-    "kd": 0.3,
+    "kd": 0.0,
     "meta_lr": 0,
     "epsilon_gain": 0.1,
     "alpha": 0.05,
@@ -75,7 +75,7 @@ pid_params = {
     "dump_buffer": False,
     "is_double": False,
     "policy_evaluation": False,
-    "seed": 26,
+    "seed": 1232,
 }
 
 # Other params
@@ -195,21 +195,21 @@ gradient_steps = session_params["gradient_steps"]
 
 obs, _ = env.reset()
 trial_idx = 0
-eps = eps_start  # start with high exploration rate
-enl_count = 0
+eps = pid_params["initial_eps"]
+# — prime the recorder so rec._prev_obs isn't None on step 0 —
+recorder._prev_obs = obs
 
 while trial_idx < num_trials:
     print(f"Trial {trial_idx+1}/{num_trials}, ε={eps:.3f}")
 
-    # reset the network here so it doesn’t leak from the last trial
-    z_prev = 0.0
-    model.policy.q_net.reset_hidden(batch_size=batch_size)
-
-    # 1) roll out one trial
-    trial_timesteps = 0
+    # reset RNN state
+    model.policy.q_net.reset_hidden(batch_size=session_params["batch_size"])
     done = False
+    trial_timesteps = 0
+    enl_count = 0
+    z_prev = 0.0
     
-
+    # run one trial
     while not done:
         # Set exploration rate
         model.exploration_rate = eps
@@ -267,11 +267,11 @@ while trial_idx < num_trials:
                                 d=np.array([d_update], dtype=np.float32), 
                                 z=np.array([z_update], dtype=np.float32),
                                 )
-        z_prev = z_update
+        
         # record every timestep in the session trace
         recorder.record_env_step(trial_idx, action, reward, next_obs, info, model=model)
-        # update obs
-        obs = next_obs
+        # update obs, z_prev
+        obs, z_prev = next_obs, z_update
 
     if outcome != "enl_break": 
         trial_idx += 1 # update trial index

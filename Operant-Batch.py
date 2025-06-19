@@ -34,7 +34,7 @@ base_session_params = {
     "action_cost":      0.1,
     "enl_penalty":      0.2,
     "enl_threshold":    200,
-    "enl_punish_scale": 0.5,
+    "enl_punish_scale": 0.1,
     "gradient_steps":   10,
     "gamma":            0.95,
     "batch_training":   False,
@@ -176,8 +176,7 @@ def train_once(session_params, pid_params):
     pbar = tqdm(total=num_trials,
                 desc=f"Trials (kd={pid_params['kd']}, omit={session_params['omission_prob']}, seed={pid_params['seed']})",
                 unit="trial")
-
-    print("seed", pid_params["seed"])
+    
 
     obs, _ = env.reset()
     trial_idx = 0
@@ -197,7 +196,7 @@ def train_once(session_params, pid_params):
         while not done:
             # set exploration rate
             model.exploration_rate = eps
-            # model.logger.record("rollout/exploration_rate", eps)
+            model.logger.record("rollout/exploration_rate", eps)
 
             # act
             action, _ = model.predict(obs, deterministic=False)
@@ -235,24 +234,23 @@ def train_once(session_params, pid_params):
                 z_update = beta * z_prev + model.gain_adapter.alpha * td_err
 
             # add to the replay buffer
-            model.replay_buffer.add(
-                obs=np.array(obs),
-                next_obs=np.array(next_obs),
-                action=np.array([action]),
-                reward=np.array([reward], dtype=np.float32),
-                done=done,
-                infos=[info],
-                d=np.array([d_update], dtype=np.float32),
-                z=np.array([z_update], dtype=np.float32),
-            )
+            model.replay_buffer.add(obs=np.array(obs),
+                                    next_obs=np.array(next_obs),
+                                    action=np.array([action]),
+                                    reward=np.array([reward], dtype=np.float32),
+                                    done=done,
+                                    infos=[info],
+                                    d=np.array([d_update], dtype=np.float32),
+                                    z=np.array([z_update], dtype=np.float32),
+                                    )
             # record every timestep in the session trace
             recorder.record_env_step(trial_idx, action, reward, next_obs, info, model=model)
             # update obs, z_prev
             obs, z_prev = next_obs, z_update
 
         # update exploration rate upon trial completion
-        if outcome != "enl_break": 
-            trial_idx += 1 # update trial index
+        if outcome != "enl_break":
+            trial_idx += 1  # update trial index
             frac = min(1.0, trial_idx / max(1, decay_trials))
             eps = pid_params["initial_eps"] + frac * (pid_params["minimum_eps"] - pid_params["initial_eps"])
             pbar.update(1)
@@ -275,12 +273,13 @@ def train_once(session_params, pid_params):
 # ----------------------------------------------------------------
 if __name__ == "__main__":
     # Define sweep grid
-    # kd_values        = [0, 0.1, 0.2 , 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    # kd_values        = [0, 0.1, 0.2]
     # omission_probs   = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+    # repeats          = 10  # Number of repeats for each combination
 
-    kd_values        = [0.3, 0.4]  # Reduced for faster testing
-    omission_probs   = [0.2]  # Reduced for faster testing
-    repeats          = 2  # Number of repeats for each combination
+    kd_values        = [0]
+    omission_probs   = [0.3]
+    repeats          = 1  # Number of repeats for each combination
 
     # Save results settings
     batch_name = 'kd_omission_sweep'
@@ -308,7 +307,7 @@ if __name__ == "__main__":
         print(f"\n=== Running sweep: kd={kd}, omission_prob={omit} ===")
         for r in range(repeats):
             # Set global seed for reproducibility
-            new_seed = random.randint(0, 10000)
+            new_seed = 1232 #random.randint(0, 10000)
             set_global_seeds(new_seed)
             pp["seed"] = new_seed
 
