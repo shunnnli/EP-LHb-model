@@ -32,7 +32,6 @@ def extract_batch_data(batches):
             post_steps = session_params['post_steps']
             dt = session_params['dt']
             recorder = session_data['recorder']
-
             (
                 num_trials,
                 reward_history,
