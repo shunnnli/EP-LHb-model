@@ -241,6 +241,7 @@ while trial_idx < num_trials:
             else:
                 d_out = model.d_net(obs_t) # [1, n_actions]
                 d_update = d_out[0, action].item()  # get the D update for the action taken
+            
             # get your PID gains α, β (and kp,ki,kd if you want)
             action_scalar = int(action)  
             a_t = torch.tensor([[action_scalar]], dtype=torch.long, device=model.device)
@@ -253,9 +254,13 @@ while trial_idx < num_trials:
             td_err = reward + (0.0 if done else model.gamma * q_next) - q_curr  # BRₜ
             # print("Q current:", q_curr, "Q next:", q_next, "TD Error:", td_err, "Reward:", reward, "Done:", done, "Action:", action_scalar)
 
-            # e) integrator update
+            # # e) integrator update
             z_update = beta * z_prev + alpha * td_err
 
+            # By calling q_reward = q_net(next_t) you explicitly feed the online net the next observation 
+            # and let its hidden state advance to reflect that transition.
+            # Without that, the hidden state of the online net never “sees” the reward‐state until the following time step, 
+            # so your RNN is perpetually one step behind. Over many steps—especially in those ENL‐stuck trials—that misalignment can cause it to keep choosing the same action forever.
             q_cue    = model.policy.q_net(obs_t)[0, action_scalar].item()
             q_reward = model.policy.q_net(next_t)[0, action_scalar].item()
         
@@ -289,5 +294,5 @@ while trial_idx < num_trials:
 # --------------------
 # Plot Summary Figure
 # --------------------
-plot_figure(recorder, dt=session_params["dt"], 
+plot_figure(recorder, dt=session_params["dt"], show=True,
             pre_steps=session_params["pre_steps"], post_steps=session_params["post_steps"])

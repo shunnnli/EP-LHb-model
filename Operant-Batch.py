@@ -34,7 +34,7 @@ base_session_params = {
     "action_cost":      0.1,
     "enl_penalty":      0.2,
     "enl_threshold":    200,
-    "enl_punish_scale": 0.1,
+    "enl_punish_scale": 0.5,
     "gradient_steps":   10,
     "gamma":            0.95,
     "batch_training":   False,
@@ -226,12 +226,14 @@ def train_once(session_params, pid_params):
                     d_update = d_out[0, action].item()  # get the D update for the action taken
 
                 # get your PID gains α, β (and kp,ki,kd if you want)
-                a_t = torch.tensor([[int(action)]], dtype=torch.long, device=model.device)
+                a_t      = torch.tensor([[int(action)]], dtype=torch.long, device=model.device)
                 _, _, _, _, beta = model.gain_adapter.get_gains(obs_t, a_t, None)
-                q_curr = model.policy.q_net(obs_t)[0, action].item()
-                q_next = model.policy.q_net_target(next_t).max(dim=1)[0].item()
-                td_err = reward + (0.0 if done else model.gamma * q_next) - q_curr
+                q_curr   = model.policy.q_net(obs_t)[0, action].item()
+                q_next   = model.policy.q_net_target(next_t).max(dim=1)[0].item()
+                td_err   = reward + (0.0 if done else model.gamma * q_next) - q_curr
                 z_update = beta * z_prev + model.gain_adapter.alpha * td_err
+                _        = model.policy.q_net(obs_t)[0, int(action)].item()
+                _        = model.policy.q_net(next_t)[0, int(action)].item()
 
             # add to the replay buffer
             model.replay_buffer.add(obs=np.array(obs),

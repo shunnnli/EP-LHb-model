@@ -188,7 +188,8 @@ def plot_figure(recorder,
                 dt=0.1,
                 pre_steps=20, post_steps=30, cue_duration=0.5,
                 tau_on: float = 0.01, tau_off: float = 0.1, 
-                save: bool = False, save_path: str = "session-summary.png"):
+                save: bool = False, save_path: str = "session-summary.png",
+                show: bool = False):
     
 
     # load recorder data
@@ -329,7 +330,8 @@ def plot_figure(recorder,
     # Tighten layout and show
     fig.subplots_adjust(left=0.05, right=0.98, top=0.95, bottom=0.07)
 
+    # Show the figure if requested
+    if show: plt.show()
+
     # Save the figure if requested
-    if save:
-        fig.savefig(save_path, dpi=300, bbox_inches='tight')
-        # print(f"Figure saved to {save_path}")
+    if save: fig.savefig(save_path, dpi=300, bbox_inches='tight')
