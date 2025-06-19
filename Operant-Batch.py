@@ -329,8 +329,8 @@ if __name__ == "__main__":
                 "seed":           pp["seed"],
             }
 
-    # Save everything
-    with open(f"PID-results/{today}-{batch_name}/results.pkl", "wb") as f:
-        pickle.dump(results, f)
+        # Save everything
+        with open(f"PID-results/{today}-{batch_name}/results_Kd_{kd}_omit_{omit}.pkl", "wb") as f:
+            pickle.dump(results, f)
 
-    print(f"\nAll sweeps completed. Results saved to PID-results/{today}-{batch_name}/results.pkl")
+    print(f"\nAll sweeps completed. Results saved to PID-results/{today}-{batch_name}")
