@@ -84,13 +84,17 @@ def get_latest_run_folder(root_dir: str) -> str:
 
     _, latest_folder = max(date_dirs, key=lambda x: x[0])
     return latest_folder
-
 def plot_pid_results(root_dir="PID-results"):
     latest = get_latest_run_folder(root_dir)
-    results_pkl = os.path.join(latest, "results.pkl")
 
-    with open(results_pkl, "rb") as f:
-        raw_results = pickle.load(f)
+    # Step 1: Combine all .pkl files inside the latest folder
+    raw_results = {}
+    for fname in os.listdir(latest):
+        if fname.endswith(".pkl"):
+            path = os.path.join(latest, fname)
+            with open(path, "rb") as f:
+                data = pickle.load(f)
+                raw_results.update(data)  # Merge dictionaries
 
     # group by (kd, omit)
     batches = {}
