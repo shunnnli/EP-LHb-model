@@ -176,11 +176,12 @@ def train_once(session_params, pid_params):
     pbar = tqdm(total=num_trials,
                 desc=f"Trials (kd={pid_params['kd']}, omit={session_params['omission_prob']}, seed={pid_params['seed']})",
                 unit="trial")
-    
+    retrain = False
 
     obs, _ = env.reset()
     trial_idx = 0
     eps = pid_params["initial_eps"]
+    enl_count = 0
     # — prime the recorder so rec._prev_obs isn't None on step 0 —
     recorder._prev_obs = obs
 
@@ -189,7 +190,6 @@ def train_once(session_params, pid_params):
         model.policy.q_net.reset_hidden(batch_size=session_params["batch_size"])
         done = False
         trial_timesteps = 0
-        enl_count = 0
         z_prev = 0.0
 
         # run one trial
@@ -203,10 +203,6 @@ def train_once(session_params, pid_params):
             next_obs, reward, _, _, info = env.step(action)
             done = info["done"]
             outcome = info["outcome"]
-
-            # punish if stuck in ENL for > 200 steps
-            enl_count = enl_count + 1 if outcome and "enl" in outcome else enl_count
-            reward -= max(enl_count - session_params["enl_threshold"], 0) * session_params["enl_punish_scale"]
 
             # update gains and sync networks
             model._on_step()
@@ -253,9 +249,19 @@ def train_once(session_params, pid_params):
         # update exploration rate upon trial completion
         if outcome != "enl_break":
             trial_idx += 1  # update trial index
+            enl_count = 0   # reset ENL count
             frac = min(1.0, trial_idx / max(1, decay_trials))
             eps = pid_params["initial_eps"] + frac * (pid_params["minimum_eps"] - pid_params["initial_eps"])
             pbar.update(1)
+        else:
+            # punish if stuck in ENL for > 200 steps
+            enl_count = enl_count + 1
+            reward -= max(enl_count - session_params["enl_threshold"], 0) * session_params["enl_punish_scale"]
+            # reset the seed and retrain if ENL > 1000 steps
+            if enl_count > 500:
+                retrain = True
+                print(f"ENL break after {enl_count} steps, retraining with different seed...")
+                return recorder, retrain
 
         # train
         model.train(batch_size=session_params["batch_size"],
@@ -267,7 +273,7 @@ def train_once(session_params, pid_params):
 
     pbar.close()
 
-    return recorder
+    return recorder, retrain
 
 
 # ----------------------------------------------------------------
@@ -280,7 +286,7 @@ if __name__ == "__main__":
     repeats          = 10  # Number of repeats for each combination
 
     # kd_values        = [0]
-    # omission_probs   = [0.3]
+    # omission_probs   = [0.1]
     # repeats          = 1  # Number of repeats for each combination
 
     # Save results settings
@@ -316,7 +322,9 @@ if __name__ == "__main__":
             # Train once with the current parameters
             print(f"Training with kd={kd}, omission_prob={omit} (repeat {r + 1}/{repeats})")
             # Call the training function
-            rec = train_once(sp, pp)
+            retrain = True
+            while retrain:
+                rec, retrain = train_once(sp, pp)
             # Plot and save summary figure
             plot_figure(rec, dt=sp["dt"], pre_steps=sp["pre_steps"], post_steps=sp["post_steps"],
                         save=True, save_path=f"PID-results/{today}-{batch_name}/kd_{kd}_omit_{omit}_seed_{pp['seed']}.png")
