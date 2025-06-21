@@ -314,17 +314,17 @@ if __name__ == "__main__":
 
         print(f"\n=== Running sweep: kd={kd}, omission_prob={omit} ===")
         for r in range(repeats):
-            # Set global seed for reproducibility
-            new_seed = random.randint(0, 10000)
-            set_global_seeds(new_seed)
-            pp["seed"] = new_seed
-
-            # Train once with the current parameters
-            print(f"Training with kd={kd}, omission_prob={omit} (repeat {r + 1}/{repeats})")
-            # Call the training function
             retrain = True
             while retrain:
+                # Set global seed for reproducibility
+                new_seed = random.randint(0, 10000)
+                set_global_seeds(new_seed)
+                pp["seed"] = new_seed
+
+                # Train once with the current parameters
+                print(f"Training with kd={kd}, omission_prob={omit} (repeat {r + 1}/{repeats})")
                 rec, retrain = train_once(sp, pp)
+
             # Plot and save summary figure
             plot_figure(rec, dt=sp["dt"], pre_steps=sp["pre_steps"], post_steps=sp["post_steps"],
                         save=True, save_path=f"PID-results/{today}-{batch_name}/kd_{kd}_omit_{omit}_seed_{pp['seed']}.png")
