@@ -275,13 +275,13 @@ def train_once(session_params, pid_params):
 # ----------------------------------------------------------------
 if __name__ == "__main__":
     # Define sweep grid
-    # kd_values        = [0, 0.1, 0.2]
-    # omission_probs   = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
-    # repeats          = 10  # Number of repeats for each combination
+    kd_values        = [0, 0.1, 0.2]
+    omission_probs   = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+    repeats          = 10  # Number of repeats for each combination
 
-    kd_values        = [0]
-    omission_probs   = [0.3]
-    repeats          = 1  # Number of repeats for each combination
+    # kd_values        = [0]
+    # omission_probs   = [0.3]
+    # repeats          = 1  # Number of repeats for each combination
 
     # Save results settings
     batch_name = 'kd_omission_sweep'
@@ -309,7 +309,7 @@ if __name__ == "__main__":
         print(f"\n=== Running sweep: kd={kd}, omission_prob={omit} ===")
         for r in range(repeats):
             # Set global seed for reproducibility
-            new_seed = 1232 #random.randint(0, 10000)
+            new_seed = random.randint(0, 10000)
             set_global_seeds(new_seed)
             pp["seed"] = new_seed
 
