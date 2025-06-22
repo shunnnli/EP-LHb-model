@@ -1,10 +1,14 @@
-import os
+import os,sys
 import re
 import pickle
 from datetime import datetime
 import numpy as np
 import matplotlib.pyplot as plt
-from plotfunctions import load_recorder_data
+from plotfunctions import load_recorder_data, plotSEM
+
+repo_path = os.path.abspath("./PID-Accelerated-TD-Learning")
+if repo_path not in sys.path:
+    sys.path.insert(0, repo_path)
 
 
 def load_data(file_path):
@@ -17,14 +21,24 @@ def extract_batch_data(batches):
     """
     all_batch_rewards = {}
     all_batch_td = {}
-    reward_counts_above_2 = {}
+    success_trials = {}
     all_batch_cue_errors = {}
 
-    for batch_name, batch_data in batches.items():
+    # Sort batches by (kd, omit) for consistent plotting
+    sorted_items = sorted(
+        batches.items(),
+        key=lambda kv: (kv[0][1],  # omit
+                        kv[0][0])  # kd
+    )
+    batch_names = [f"kd={kd},omit={omit}" for (kd, omit), _ in sorted_items]
+
+    for idx, ((kd, omit), batch_data) in enumerate(sorted_items):
         all_rewards = []
         td_amplitudes = []  # List of np.arrays (one per session)
-        counts_per_session = []
+        success_per_session = []
         cue_errors = []  # List of np.arrays (one per session)
+        batch_name = (kd, omit)  # Use tuple as batch name
+        print(f"Processing batch: {batch_name}")
 
         for session, session_data in batch_data.items():
             session_params = session_data['session_params']
@@ -33,30 +47,31 @@ def extract_batch_data(batches):
             dt = session_params['dt']
             recorder = session_data['recorder']
             (
-                num_trials,
+                _,
                 reward_history,
                 *_,
                 cue_error,
                 _,
-                _,
+                trial_anticipatory_licks,
                 trial_TD_amplitude,
                 t_axis,
-                trial_axis
+                _,
             ) = load_recorder_data(recorder, dt=dt, pre_steps=pre_steps, post_steps=post_steps)
 
             all_rewards.extend(reward_history)
             td_amplitudes.append(np.array(trial_TD_amplitude))
-            count = np.sum(np.array(reward_history) > 2)
-            counts_per_session.append(count)
+            count = np.sum(np.array(trial_anticipatory_licks) > 2)
+            success_per_session.append(count)
             cue_error = np.array(cue_error)  # shape: (num_trials, time_steps)
             cue_errors.append(cue_error)
 
         all_batch_rewards[batch_name] = all_rewards
         all_batch_td[batch_name] = td_amplitudes
-        reward_counts_above_2[batch_name] = counts_per_session
+        success_trials[batch_name] = success_per_session
         all_batch_cue_errors[batch_name] = cue_errors
 
-    return all_batch_rewards, all_batch_td, reward_counts_above_2, all_batch_cue_errors, t_axis
+    return all_batch_rewards, all_batch_td, success_trials, all_batch_cue_errors, t_axis
+
 
 def get_latest_run_folder(root_dir: str) -> str:
     """
@@ -83,6 +98,8 @@ def get_latest_run_folder(root_dir: str) -> str:
 
     _, latest_folder = max(date_dirs, key=lambda x: x[0])
     return latest_folder
+
+
 def plot_pid_results(root_dir="PID-results"):
     latest = get_latest_run_folder(root_dir)
 
@@ -101,46 +118,52 @@ def plot_pid_results(root_dir="PID-results"):
         batches.setdefault((kd, omit), {})[repeat] = data
 
     # extract data
-    all_rewards, all_td, counts, cue_errors, t_axis = extract_batch_data(batches)
+    print("Extracting data from batches...")
+    all_rewards, all_td, success_trials, cue_errors, t_axis = extract_batch_data(batches)
 
     # ------- plot results -------
     fig, axs = plt.subplots(2, 2, figsize=(12, 8))
-    colors = plt.cm.tab10(np.linspace(0, 1, len(batches)))
+    ax1, ax2 = axs[0]      # top row
+    ax3, ax4 = axs[1]      # bottom row
+    # Color from blue to purple to red
+    colors = plt.cm.viridis(np.linspace(0, 1, len(batches)))
+    trial_axis = np.arange(len(next(iter(all_td.values()))[0]))  # Assuming all sessions have same length
+    x = np.arange(len(success_trials))
 
     # Rewards
-    ax1 = axs[0, 0]
+    print("Plotting reward distributions...")
     labels = [f"kd={k},omit={o}" for (k, o) in all_rewards]
-    ax1.boxplot(all_rewards.values(), labels=labels)
-    ax1.set_title("Combined Reward Distribution Per Batch")
+    ax1.violinplot(all_rewards.values(), showmeans=True, showmedians=True, showextrema=True)
+    ax1.set_xticks(x+1)
+    ax1.set_xticklabels(labels, rotation=30, ha="right")
     ax1.set_ylabel("Reward")
+    ax1.set_title("Combined Reward Distribution Per Batch")
 
     # TD traces
-    ax2 = axs[0, 1]
+    print("Plotting TD traces...")
     for i, ((k, o), td_sessions) in enumerate(all_td.items()):
         arr = np.stack(td_sessions)
-        for session_td in arr:
-            ax2.plot(session_td, color=colors[i], alpha=0.3, linewidth=0.5)
-        ax2.plot(arr.mean(0), color=colors[i], linewidth=1.5, label=f"kd={k},omit={o}")
+        plotSEM(trial_axis, arr, color=colors[i], ax=ax2, label=f"kd={k},omit={o}")
+        # ax2.plot(arr.mean(0), color=colors[i], linewidth=1.5, label=f"kd={k},omit={o}")
     ax2.set_title("TD Amplitude During Cue Across Trials")
     ax2.set_xlabel("Trial")
     ax2.set_ylabel("TD Amplitude")
-    ax2.legend()
 
     # Reward‐count >2
-    ax3 = axs[1, 0]
-    means = [np.mean(counts[b]) for b in counts]
-    stds  = [np.std(counts[b])  for b in counts]
-    x = np.arange(len(counts))
+    print("Plotting success trials...")
+    means = [np.mean(success_trials[b]) for b in success_trials]
+    stds  = [np.std(success_trials[b])  for b in success_trials]
     ax3.bar(x, means, yerr=stds, color=colors, capsize=5)
     ax3.set_xticks(x)
-    ax3.set_xticklabels(labels, rotation=45, ha="right")
+    ax3.set_xticklabels(labels, rotation=30, ha="right")
     ax3.set_ylabel("Rewards (avg over sessions)")
     ax3.set_title("Success Trials (Big Outcome) per Batch")
 
     # Average TD‐error
-    ax4 = axs[1, 1]
+    print("Plotting average TD error traces...")
     for i, ((k, o), errs) in enumerate(cue_errors.items()):
         stacked = np.concatenate(errs, axis=0)
+        # plotSEM(t_axis, stacked, color=colors[i], ax=ax4, label=f"kd={k},omit={o}")
         ax4.plot(t_axis, stacked.mean(0), color=colors[i], linewidth=1, label=f"kd={k},omit={o}")
     ymin, ymax = ax4.get_ylim()
     ax4.fill_betweenx([ymin, ymax], 0, 0.5, color='tab:orange', alpha=0.2)
@@ -148,11 +171,12 @@ def plot_pid_results(root_dir="PID-results"):
     ax4.set_title("Average TD Error Trace Per Batch")
     ax4.set_xlabel("Time (s)")
     ax4.set_ylabel("Average TD Error")
-    ax4.legend()
 
+    # Save the figure
     plt.tight_layout()
+    fig_path = os.path.join(latest, "PID-results.png")
+    fig.savefig(fig_path, dpi=300)
     plt.show()
-
 
 
 plot_pid_results("PID-results")
