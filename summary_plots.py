@@ -6,7 +6,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from plotfunctions import load_recorder_data, plotSEM, plotScatterBar, plotLine
 
-
 repo_path = os.path.abspath("./PID-Accelerated-TD-Learning")
 if repo_path not in sys.path:
     sys.path.insert(0, repo_path)
@@ -190,17 +189,10 @@ def plot_pid_results(root_dir="PID-results"):
     # currently defining performance as success_trials
     print("Plotting performance delta by omisssion level...")
     plotLine(unique_omits=unique_omits, performance=success_trials, ax=ax4)
-    ax4.set_xticks(np.arange(len(unique_omits)))
-    ax4.set_xticklabels([f"omit={o}" for o in unique_omits])
-    ax4.set_ylabel("Avg Success Trials")
-    ax4.set_title("Success Trials by Omission Level")
-    ax4.legend(
-      title="KD",
-      loc="upper left",
-      bbox_to_anchor=(1.02, 1.0),
-      borderaxespad=0,
-      frameon=False
-    )
+    ax4.set_ylabel("Δ Avg Success Trials\n(from kd=0)")
+    ax4.set_title("Δ in Performance from kd=0")
+    ax4.legend(title="Kd levels", loc="upper left",
+        bbox_to_anchor=(1.02, 1.0), borderaxespad=0,frameon=False)
 
     # Maximize figuer to fit the whole screen (unfinished)
     mng = plt.get_current_fig_manager()
@@ -211,7 +203,6 @@ def plot_pid_results(root_dir="PID-results"):
             mng.window.state('zoomed')    # TkAgg on Windows
         except AttributeError:
             mng.full_screen_toggle()
-
 
     # Save the figure
     plt.tight_layout()
