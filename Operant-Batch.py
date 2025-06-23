@@ -176,12 +176,12 @@ def train_once(session_params, pid_params):
     pbar = tqdm(total=num_trials,
                 desc=f"Trials (kd={pid_params['kd']}, omit={session_params['omission_prob']}, seed={pid_params['seed']})",
                 unit="trial")
-
-    print("seed", pid_params["seed"])
+    retrain = False
 
     obs, _ = env.reset()
     trial_idx = 0
     eps = pid_params["initial_eps"]
+    enl_count = 0
     # — prime the recorder so rec._prev_obs isn't None on step 0 —
     recorder._prev_obs = obs
 
@@ -190,24 +190,19 @@ def train_once(session_params, pid_params):
         model.policy.q_net.reset_hidden(batch_size=session_params["batch_size"])
         done = False
         trial_timesteps = 0
-        enl_count = 0
         z_prev = 0.0
 
         # run one trial
         while not done:
             # set exploration rate
             model.exploration_rate = eps
-            # model.logger.record("rollout/exploration_rate", eps)
+            model.logger.record("rollout/exploration_rate", eps)
 
             # act
             action, _ = model.predict(obs, deterministic=False)
             next_obs, reward, _, _, info = env.step(action)
             done = info["done"]
             outcome = info["outcome"]
-
-            # punish if stuck in ENL for > 200 steps
-            enl_count = enl_count + 1 if outcome and "enl" in outcome else enl_count
-            reward -= max(enl_count - session_params["enl_threshold"], 0) * session_params["enl_punish_scale"]
 
             # update gains and sync networks
             model._on_step()
@@ -227,35 +222,46 @@ def train_once(session_params, pid_params):
                     d_update = d_out[0, action].item()  # get the D update for the action taken
 
                 # get your PID gains α, β (and kp,ki,kd if you want)
-                a_t = torch.tensor([[int(action)]], dtype=torch.long, device=model.device)
+                a_t      = torch.tensor([[int(action)]], dtype=torch.long, device=model.device)
                 _, _, _, _, beta = model.gain_adapter.get_gains(obs_t, a_t, None)
-                q_curr = model.policy.q_net(obs_t)[0, action].item()
-                q_next = model.policy.q_net_target(next_t).max(dim=1)[0].item()
-                td_err = reward + (0.0 if done else model.gamma * q_next) - q_curr
+                q_curr   = model.policy.q_net(obs_t)[0, action].item()
+                q_next   = model.policy.q_net_target(next_t).max(dim=1)[0].item()
+                td_err   = reward + (0.0 if done else model.gamma * q_next) - q_curr
                 z_update = beta * z_prev + model.gain_adapter.alpha * td_err
+                _        = model.policy.q_net(obs_t)[0, int(action)].item()
+                _        = model.policy.q_net(next_t)[0, int(action)].item()
 
             # add to the replay buffer
-            model.replay_buffer.add(
-                obs=np.array(obs),
-                next_obs=np.array(next_obs),
-                action=np.array([action]),
-                reward=np.array([reward], dtype=np.float32),
-                done=done,
-                infos=[info],
-                d=np.array([d_update], dtype=np.float32),
-                z=np.array([z_update], dtype=np.float32),
-            )
+            model.replay_buffer.add(obs=np.array(obs),
+                                    next_obs=np.array(next_obs),
+                                    action=np.array([action]),
+                                    reward=np.array([reward], dtype=np.float32),
+                                    done=done,
+                                    infos=[info],
+                                    d=np.array([d_update], dtype=np.float32),
+                                    z=np.array([z_update], dtype=np.float32),
+                                    )
             # record every timestep in the session trace
             recorder.record_env_step(trial_idx, action, reward, next_obs, info, model=model)
             # update obs, z_prev
             obs, z_prev = next_obs, z_update
 
         # update exploration rate upon trial completion
-        if outcome != "enl_break": 
-            trial_idx += 1 # update trial index
+        if outcome != "enl_break":
+            trial_idx += 1  # update trial index
+            enl_count = 0   # reset ENL count
             frac = min(1.0, trial_idx / max(1, decay_trials))
             eps = pid_params["initial_eps"] + frac * (pid_params["minimum_eps"] - pid_params["initial_eps"])
             pbar.update(1)
+        else:
+            # punish if stuck in ENL for > 200 steps
+            enl_count = enl_count + 1
+            reward -= max(enl_count - session_params["enl_threshold"], 0) * session_params["enl_punish_scale"]
+            # reset the seed and retrain if ENL > 1000 steps
+            if enl_count > 500:
+                retrain = True
+                print(f"ENL break after {enl_count} steps, retraining with different seed...")
+                return recorder, retrain
 
         # train
         model.train(batch_size=session_params["batch_size"],
@@ -267,7 +273,7 @@ def train_once(session_params, pid_params):
 
     pbar.close()
 
-    return recorder
+    return recorder, retrain
 
 
 # ----------------------------------------------------------------
@@ -275,12 +281,13 @@ def train_once(session_params, pid_params):
 # ----------------------------------------------------------------
 if __name__ == "__main__":
     # Define sweep grid
-    # kd_values        = [0, 0.1, 0.2 , 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-    # omission_probs   = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+    kd_values        = [0.6, 0.7, 0.8, 0.9, 1]  # PID derivative gain values
+    omission_probs   = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+    repeats          = 10  # Number of repeats for each combination
 
-    kd_values        = [0.3, 0.4]  # Reduced for faster testing
-    omission_probs   = [0.2]  # Reduced for faster testing
-    repeats          = 2  # Number of repeats for each combination
+    # kd_values        = [0]
+    # omission_probs   = [0.1]
+    # repeats          = 1  # Number of repeats for each combination
 
     # Save results settings
     batch_name = 'kd_omission_sweep'
@@ -307,18 +314,20 @@ if __name__ == "__main__":
 
         print(f"\n=== Running sweep: kd={kd}, omission_prob={omit} ===")
         for r in range(repeats):
-            # Set global seed for reproducibility
-            new_seed = random.randint(0, 10000)
-            set_global_seeds(new_seed)
-            pp["seed"] = new_seed
+            retrain = True
+            while retrain:
+                # Set global seed for reproducibility
+                new_seed = random.randint(0, 10000)
+                set_global_seeds(new_seed)
+                pp["seed"] = new_seed
 
-            # Train once with the current parameters
-            print(f"Training with kd={kd}, omission_prob={omit} (repeat {r + 1}/{repeats})")
-            # Call the training function
-            rec = train_once(sp, pp)
+                # Train once with the current parameters
+                print(f"Training with kd={kd}, omission_prob={omit} (repeat {r + 1}/{repeats})")
+                rec, retrain = train_once(sp, pp)
+
             # Plot and save summary figure
             plot_figure(rec, dt=sp["dt"], pre_steps=sp["pre_steps"], post_steps=sp["post_steps"],
-                        save=True, save_path=f"PID-results/{today}-{batch_name}/kd_{kd}_omit_{omit}_repeat_{r}.png")
+                        save=True, save_path=f"PID-results/{today}-{batch_name}/kd_{kd}_omit_{omit}_seed_{pp['seed']}.png")
 
             # Store both params and recorder
             results[(kd, omit, r)] = {
@@ -328,8 +337,8 @@ if __name__ == "__main__":
                 "seed":           pp["seed"],
             }
 
-    # Save everything
-    with open(f"PID-results/{today}-{batch_name}/results.pkl", "wb") as f:
-        pickle.dump(results, f)
+        # Save everything
+        with open(f"PID-results/{today}-{batch_name}/results_Kd_{kd}_omit_{omit}.pkl", "wb") as f:
+            pickle.dump(results, f)
 
-    print(f"\nAll sweeps completed. Results saved to PID-results/{today}-{batch_name}/results.pkl")
+    print(f"\nAll sweeps completed. Results saved to PID-results/{today}-{batch_name}")

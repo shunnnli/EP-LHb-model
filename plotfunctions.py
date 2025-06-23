@@ -121,7 +121,6 @@ def plotScatterBar(data,
             linestyle='none',
             alpha=0.5              
         )
-
         bp = ax.boxplot(
             data,
             positions=x,
@@ -133,7 +132,7 @@ def plotScatterBar(data,
             medianprops=dict(linewidth=1),
             flierprops=flierprops
         )     
-        
+
         # color boxes
         for patch, col in zip(bp['boxes'], colors):
             patch.set_facecolor(col)
@@ -187,15 +186,16 @@ def plotScatterBar(data,
                 elinewidth=error_bar_width,
                 ecolor=dc
             )
-
-        # overlay scatter
-        for xi, group, col in zip(x, data, colors):
-            r, g, b, _ = col
-            scat_col = (r, g, b, scatter_alpha)
-            jit = (np.random.rand(len(group)) - 0.5) * jitter
-            ax.scatter(xi + jit, group, color=scat_col, s=10)
+            
     else:
         raise ValueError("style must be 'box' or 'bar'")
+
+    # overlay scatter
+    for xi, group, col in zip(x, data, colors):
+        r, g, b, _ = col
+        scat_col = (r, g, b, scatter_alpha)
+        jit = (np.random.rand(len(group)) - 0.5) * jitter
+        ax.scatter(xi + jit, group, color=scat_col, s=10)
 
     # set tick labels
     if labels is not None:
@@ -203,6 +203,7 @@ def plotScatterBar(data,
         ax.set_xticklabels(labels, rotation=30, ha='right')
 
     return ax
+
 
 def plotLine(unique_omits, performance, ax=None):
     """Plot a line with optional label and color."""
@@ -225,7 +226,7 @@ def plotLine(unique_omits, performance, ax=None):
                 avg = np.mean(performance[key])
                 ax.hlines(avg, i - width / 2, i + width / 2, color=kd_colors[j], linewidth=2, label=f"kd={kd}" if i == 0 else None)
                 ax.plot(i, avg, 'o', color=kd_colors[j])
-
+                
 
 def fft(td_error, sample_rate):
     all_magnitudes = []
