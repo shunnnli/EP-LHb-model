@@ -113,7 +113,14 @@ def plotScatterBar(data,
     jitter = width * 0.4
 
     if style == 'box':
-        # draw boxes with face color and no edge
+        flierprops = dict(
+            marker='o',
+            markerfacecolor='none',    
+            markeredgecolor='gray',  
+            markersize=4,
+            linestyle='none',
+            alpha=0.5              
+        )
         bp = ax.boxplot(
             data,
             positions=x,
@@ -122,8 +129,10 @@ def plotScatterBar(data,
             boxprops=dict(linewidth=1),
             whiskerprops=dict(linewidth=error_bar_width),
             capprops=dict(linewidth=error_bar_width),
-            medianprops=dict(linewidth=1)
-        )
+            medianprops=dict(linewidth=1),
+            flierprops=flierprops
+        )     
+
         # color boxes
         for patch, col in zip(bp['boxes'], colors):
             patch.set_facecolor(col)
@@ -177,6 +186,7 @@ def plotScatterBar(data,
                 elinewidth=error_bar_width,
                 ecolor=dc
             )
+            
     else:
         raise ValueError("style must be 'box' or 'bar'")
 
@@ -194,6 +204,29 @@ def plotScatterBar(data,
 
     return ax
 
+
+def plotLine(unique_omits, performance, ax=None):
+    """Plot a line with optional label and color."""
+    # Ensure we have an Axes
+    if ax is None:
+        fig, ax = plt.subplots()
+
+    # bar positions
+    width = 0.6
+
+    kd_levels = sorted({kd for (kd, omit) in performance.keys()})
+    kd_colors = plt.cm.viridis(np.linspace(0.2, 0.9, len(kd_levels)))
+
+    # plot one vertical bar per omit
+    # plot lines per kd
+    for i, omit in enumerate(unique_omits):
+        for j, kd in enumerate(kd_levels):
+            key = (kd, omit)
+            if key in performance:
+                avg = np.mean(performance[key])
+                ax.hlines(avg, i - width / 2, i + width / 2, color=kd_colors[j], linewidth=2, label=f"kd={kd}" if i == 0 else None)
+                ax.plot(i, avg, 'o', color=kd_colors[j])
+                
 
 def fft(td_error, sample_rate):
     all_magnitudes = []
