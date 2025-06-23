@@ -60,13 +60,19 @@ def get_traces(data, event, pre_steps, post_steps):
     return aligned_data
 
 
-def plotScatterBar(data, labels=None, style='box', ax=None, colors=None,
-                   width=0.6, scatter_alpha=0.8,
-                   error_bar_width=1, error_bar_darker_factor=0.7):
+def plotScatterBar(data,
+                   labels=None,
+                   style='box',
+                   ax=None,
+                   colors=None,
+                   width=0.6,
+                   scatter_alpha=0.8,
+                   error_bar_width=2,
+                   error_bar_darker_factor=0.7):
     """
     Plot either:
       – a boxplot + scatter of every point  (style='box')
-      – a barplot (mean±std) + scatter of every point (style='bar')
+      – a barplot (mean±SEM) + scatter of every point (style='bar')
 
     Parameters
     ----------
@@ -75,7 +81,7 @@ def plotScatterBar(data, labels=None, style='box', ax=None, colors=None,
     labels : sequence of str, optional
         Length-N list of tick labels.
     style : {'box', 'bar'}
-        'box' for boxplot+points; 'bar' for barplot+points.
+        'box' for boxplot+points; 'bar' for barplot+points (SEM error bars).
     ax : matplotlib.axes.Axes, optional
         If None, a new figure+axes is created.
     colors : list of RGBA tuples, optional
@@ -126,10 +132,11 @@ def plotScatterBar(data, labels=None, style='box', ax=None, colors=None,
         darker_colors = []
         for col in colors:
             r, g, b, a = col
-            darker_colors.extend([(r * error_bar_darker_factor,
-                                    g * error_bar_darker_factor,
-                                    b * error_bar_darker_factor,
-                                    a)] * 2)
+            darker = (r * error_bar_darker_factor,
+                      g * error_bar_darker_factor,
+                      b * error_bar_darker_factor,
+                      a)
+            darker_colors.extend([darker, darker])
         for whisker, dc in zip(bp['whiskers'], darker_colors):
             whisker.set_color(dc)
             whisker.set_linewidth(error_bar_width)
@@ -142,9 +149,9 @@ def plotScatterBar(data, labels=None, style='box', ax=None, colors=None,
             median.set_linewidth(1)
 
     elif style == 'bar':
-        # compute means & stds
+        # compute means & SEM
         means = [np.mean(g) for g in data]
-        stds  = [np.std(g)  for g in data]
+        sems  = [np.std(g, ddof=1)/np.sqrt(len(g)) for g in data]
         # draw bars
         ax.bar(
             x,
@@ -154,8 +161,8 @@ def plotScatterBar(data, labels=None, style='box', ax=None, colors=None,
             edgecolor=colors,
             linewidth=1
         )
-        # darker error bars
-        for xi, mean, std, col in zip(x, means, stds, colors):
+        # darker SEM error bars
+        for xi, mean, sem, col in zip(x, means, sems, colors):
             r, g, b, a = col
             dc = (r * error_bar_darker_factor,
                   g * error_bar_darker_factor,
@@ -164,7 +171,7 @@ def plotScatterBar(data, labels=None, style='box', ax=None, colors=None,
             ax.errorbar(
                 xi,
                 mean,
-                yerr=std,
+                yerr=sem,
                 fmt='none',
                 capsize=5,
                 elinewidth=error_bar_width,
