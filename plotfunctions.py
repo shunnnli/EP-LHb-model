@@ -67,7 +67,7 @@ def plotScatterBar(data,
                    colors=None,
                    width=0.6,
                    scatter_alpha=0.8,
-                   error_bar_width=2,
+                   error_bar_width=1,
                    error_bar_darker_factor=0.7):
     """
     Plot either:
@@ -220,7 +220,7 @@ def plotLine(unique_omits, performance, ax=None):
     # 2) kd levels > 0
     all_kds = sorted({kd for (kd, _) in performance.keys()})
     kd_levels = [kd for kd in all_kds if kd != 0]
-    kd_colors = plt.cm.viridis(np.linspace(0.2, 0.9, len(kd_levels)))
+    kd_colors = [plt.get_cmap('tab10')(i) for i in range(len(kd_levels))]
 
     # 3) For each kd>0, compute diffs and plot a line
     for j, kd in enumerate(kd_levels):
