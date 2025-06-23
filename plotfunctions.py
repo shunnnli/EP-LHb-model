@@ -121,6 +121,7 @@ def plotScatterBar(data,
             linestyle='none',
             alpha=0.5              
         )
+
         bp = ax.boxplot(
             data,
             positions=x,
@@ -132,7 +133,7 @@ def plotScatterBar(data,
             medianprops=dict(linewidth=1),
             flierprops=flierprops
         )     
-
+        
         # color boxes
         for patch, col in zip(bp['boxes'], colors):
             patch.set_facecolor(col)
@@ -186,47 +187,64 @@ def plotScatterBar(data,
                 elinewidth=error_bar_width,
                 ecolor=dc
             )
-            
+
+        # overlay scatter
+        for xi, group, col in zip(x, data, colors):
+            r, g, b, _ = col
+            scat_col = (r, g, b, scatter_alpha)
+            jit = (np.random.rand(len(group)) - 0.5) * jitter
+            ax.scatter(xi + jit, group, color=scat_col, s=10)
     else:
         raise ValueError("style must be 'box' or 'bar'")
-
-    # overlay scatter
-    for xi, group, col in zip(x, data, colors):
-        r, g, b, _ = col
-        scat_col = (r, g, b, scatter_alpha)
-        jit = (np.random.rand(len(group)) - 0.5) * jitter
-        ax.scatter(xi + jit, group, color=scat_col, s=10)
 
     # set tick labels
     if labels is not None:
         ax.set_xticks(x)
-        ax.set_xticklabels(labels, rotation=30, ha='right')
+        ax.set_xticklabels(labels, rotation=30, ha='right', fontsize=4.5)
 
     return ax
 
-
 def plotLine(unique_omits, performance, ax=None):
-    """Plot a line with optional label and color."""
-    # Ensure we have an Axes
+    """
+    Plot, for each kd>0, the difference in avg success trials relative to kd=0,
+    across omission levels.
+    """
     if ax is None:
         fig, ax = plt.subplots()
 
-    # bar positions
-    width = 0.6
+    baseline = {
+        omit: np.mean(performance.get((0, omit), [0]))
+        for omit in unique_omits
+    }
 
-    kd_levels = sorted({kd for (kd, omit) in performance.keys()})
+    # 2) kd levels > 0
+    all_kds = sorted({kd for (kd, _) in performance.keys()})
+    kd_levels = [kd for kd in all_kds if kd != 0]
     kd_colors = plt.cm.viridis(np.linspace(0.2, 0.9, len(kd_levels)))
 
-    # plot one vertical bar per omit
-    # plot lines per kd
-    for i, omit in enumerate(unique_omits):
-        for j, kd in enumerate(kd_levels):
-            key = (kd, omit)
-            if key in performance:
-                avg = np.mean(performance[key])
-                ax.hlines(avg, i - width / 2, i + width / 2, color=kd_colors[j], linewidth=2, label=f"kd={kd}" if i == 0 else None)
-                ax.plot(i, avg, 'o', color=kd_colors[j])
-                
+    # 3) For each kd>0, compute diffs and plot a line
+    for j, kd in enumerate(kd_levels):
+        diffs = [
+            np.mean(performance.get((kd, omit), [0])) - baseline[omit]
+            for omit in unique_omits
+        ]
+        ax.plot(
+            np.arange(len(unique_omits)),
+            diffs,
+            marker='o',
+            linewidth=2,
+            label=f"kd={kd}",
+            color=kd_colors[j]
+        )
+
+    # 4) Formatting
+    ax.set_xticks(np.arange(len(unique_omits)))
+    ax.set_xticklabels([f"omit={o}" for o in unique_omits], fontsize=10)
+
+    return ax
+
+    
+
 
 def fft(td_error, sample_rate):
     all_magnitudes = []
