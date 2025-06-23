@@ -59,6 +59,135 @@ def get_traces(data, event, pre_steps, post_steps):
 
     return aligned_data
 
+
+def plotScatterBar(data, labels=None, style='box', ax=None, colors=None,
+                   width=0.6, scatter_alpha=0.8,
+                   error_bar_width=1, error_bar_darker_factor=0.7):
+    """
+    Plot either:
+      – a boxplot + scatter of every point  (style='box')
+      – a barplot (mean±std) + scatter of every point (style='bar')
+
+    Parameters
+    ----------
+    data : sequence of sequences
+        A list of N groups, each group being an iterable of numbers.
+    labels : sequence of str, optional
+        Length-N list of tick labels.
+    style : {'box', 'bar'}
+        'box' for boxplot+points; 'bar' for barplot+points.
+    ax : matplotlib.axes.Axes, optional
+        If None, a new figure+axes is created.
+    colors : list of RGBA tuples, optional
+        Length-N list of fill colors for each group.
+    width : float
+        Total width allocated per group.
+    scatter_alpha : float
+        Alpha for the overlaid scatter points (default 0.8).
+    error_bar_width : float
+        Line width for whiskers/caps (box) or error bars (bar) (default 2).
+    error_bar_darker_factor : float
+        How much darker the whiskers/caps or error bars are relative to face color (0 < f <= 1).
+    """
+    # Ensure we have an Axes
+    if ax is None:
+        fig, ax = plt.subplots()
+
+    n = len(data)
+    if n == 0:
+        return ax
+
+    # Default colors
+    if colors is None:
+        colors = [(0, 0, 0, 1.0)] * n
+    if len(colors) != n:
+        raise ValueError(f"colors must have length {n}, got {len(colors)}")
+
+    x = np.arange(n)
+    jitter = width * 0.4
+
+    if style == 'box':
+        # draw boxes with face color and no edge
+        bp = ax.boxplot(
+            data,
+            positions=x,
+            widths=width,
+            patch_artist=True,
+            boxprops=dict(linewidth=1),
+            whiskerprops=dict(linewidth=error_bar_width),
+            capprops=dict(linewidth=error_bar_width),
+            medianprops=dict(linewidth=1)
+        )
+        # color boxes
+        for patch, col in zip(bp['boxes'], colors):
+            patch.set_facecolor(col)
+            patch.set_edgecolor(col)
+        # whiskers and caps darker
+        darker_colors = []
+        for col in colors:
+            r, g, b, a = col
+            darker_colors.extend([(r * error_bar_darker_factor,
+                                    g * error_bar_darker_factor,
+                                    b * error_bar_darker_factor,
+                                    a)] * 2)
+        for whisker, dc in zip(bp['whiskers'], darker_colors):
+            whisker.set_color(dc)
+            whisker.set_linewidth(error_bar_width)
+        for cap, dc in zip(bp['caps'], darker_colors):
+            cap.set_color(dc)
+            cap.set_linewidth(error_bar_width)
+        # medians same color as box edge
+        for median, col in zip(bp['medians'], colors):
+            median.set_color(col)
+            median.set_linewidth(1)
+
+    elif style == 'bar':
+        # compute means & stds
+        means = [np.mean(g) for g in data]
+        stds  = [np.std(g)  for g in data]
+        # draw bars
+        ax.bar(
+            x,
+            means,
+            width=width,
+            color=colors,
+            edgecolor=colors,
+            linewidth=1
+        )
+        # darker error bars
+        for xi, mean, std, col in zip(x, means, stds, colors):
+            r, g, b, a = col
+            dc = (r * error_bar_darker_factor,
+                  g * error_bar_darker_factor,
+                  b * error_bar_darker_factor,
+                  a)
+            ax.errorbar(
+                xi,
+                mean,
+                yerr=std,
+                fmt='none',
+                capsize=5,
+                elinewidth=error_bar_width,
+                ecolor=dc
+            )
+    else:
+        raise ValueError("style must be 'box' or 'bar'")
+
+    # overlay scatter
+    for xi, group, col in zip(x, data, colors):
+        r, g, b, _ = col
+        scat_col = (r, g, b, scatter_alpha)
+        jit = (np.random.rand(len(group)) - 0.5) * jitter
+        ax.scatter(xi + jit, group, color=scat_col, s=10)
+
+    # set tick labels
+    if labels is not None:
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, rotation=30, ha='right')
+
+    return ax
+
+
 def fft(td_error, sample_rate):
     all_magnitudes = []
 
@@ -79,6 +208,7 @@ def fft(td_error, sample_rate):
 
     return freqs, all_magnitudes
 
+
 def get_amplitude(signal, window=None):
     """Calculate the amplitude of a signal."""
     if window is not None:
@@ -92,6 +222,7 @@ def get_amplitude(signal, window=None):
     # If max is greater than min, use max, otherwise use min
     amp = np.where(np.abs(maxPerTrial) >= np.abs(minPerTrial),maxPerTrial,minPerTrial)
     return amp
+
 
 def load_recorder_data(recorder,
                 tds_PD=None, tds_TD=None,

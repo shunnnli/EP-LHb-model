@@ -281,7 +281,7 @@ def train_once(session_params, pid_params):
 # ----------------------------------------------------------------
 if __name__ == "__main__":
     # Define sweep grid
-    kd_values        = [0, 0.1, 0.2]
+    kd_values        = [0.6, 0.7, 0.8, 0.9, 1]  # PID derivative gain values
     omission_probs   = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
     repeats          = 10  # Number of repeats for each combination
 

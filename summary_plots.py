@@ -4,7 +4,7 @@ import pickle
 from datetime import datetime
 import numpy as np
 import matplotlib.pyplot as plt
-from plotfunctions import load_recorder_data, plotSEM
+from plotfunctions import load_recorder_data, plotSEM, plotScatterBar
 
 repo_path = os.path.abspath("./PID-Accelerated-TD-Learning")
 if repo_path not in sys.path:
@@ -104,6 +104,7 @@ def plot_pid_results(root_dir="PID-results"):
     latest = get_latest_run_folder(root_dir)
 
     # Step 1: Combine all .pkl files inside the latest folder
+    print(f"Loading results from: {latest}")
     raw_results = {}
     for fname in os.listdir(latest):
         if fname.endswith(".pkl"):
@@ -125,17 +126,43 @@ def plot_pid_results(root_dir="PID-results"):
     fig, axs = plt.subplots(2, 2, figsize=(12, 8))
     ax1, ax2 = axs[0]      # top row
     ax3, ax4 = axs[1]      # bottom row
-    # Color from blue to purple to red
-    colors = plt.cm.viridis(np.linspace(0, 1, len(batches)))
+
+    # Set up colors and x-axis
+    # --- 1) figure out your ordering (omit first, then kd) ---
+    sorted_items = sorted(
+        all_td.items(), 
+        key=lambda kv: (kv[0][1], kv[0][0])   # (omit, kd)
+    )
+
+    # --- 2) extract the unique omits in order and pick a base color for each ---
+    unique_omits = sorted({omit for (kd, omit) in all_td.keys()})
+    base_rgbs    = plt.cm.tab10(np.linspace(0, 1, len(unique_omits)))
+    omit_to_rgb  = dict(zip(unique_omits, base_rgbs))  # { omit → (r,g,b,…) }
+
+    # --- 3) group the kd’s under each omit so you can space their alphas ---
+    kd_groups = {
+        omit: sorted(k for (k, o) in all_td.keys() if o == omit)
+        for omit in unique_omits
+    }
+
+    # --- 4) build a parallel list of RGBA tuples in your plotting order ---
+    plot_colors = []
+    for (kd, omit), _ in sorted_items:
+        grp = kd_groups[omit]
+        idx = grp.index(kd)
+        # linearly space alpha between 0.3 and 1.0 for this group
+        alphas = np.linspace(0.3, 1.0, len(grp))
+        r, g, b, _ = omit_to_rgb[omit]
+        plot_colors.append((r, g, b, alphas[idx]))
+    colors = [tuple(c) for c in plot_colors]  # convert to tuples for matplotlib
+
+    # Prepare x axis and labels
     trial_axis = np.arange(len(next(iter(all_td.values()))[0]))  # Assuming all sessions have same length
-    x = np.arange(len(success_trials))
 
     # Rewards
     print("Plotting reward distributions...")
     labels = [f"kd={k},omit={o}" for (k, o) in all_rewards]
-    ax1.violinplot(all_rewards.values(), showmeans=True, showmedians=True, showextrema=True)
-    ax1.set_xticks(x+1)
-    ax1.set_xticklabels(labels, rotation=30, ha="right")
+    plotScatterBar(all_rewards.values(),labels=labels, colors=colors, style='box', ax=ax1)
     ax1.set_ylabel("Reward")
     ax1.set_title("Combined Reward Distribution Per Batch")
 
@@ -151,11 +178,7 @@ def plot_pid_results(root_dir="PID-results"):
 
     # Reward‐count >2
     print("Plotting success trials...")
-    means = [np.mean(success_trials[b]) for b in success_trials]
-    stds  = [np.std(success_trials[b])  for b in success_trials]
-    ax3.bar(x, means, yerr=stds, color=colors, capsize=5)
-    ax3.set_xticks(x)
-    ax3.set_xticklabels(labels, rotation=30, ha="right")
+    plotScatterBar(success_trials.values(),labels=labels, colors=colors, style='bar', ax=ax3)
     ax3.set_ylabel("Rewards (avg over sessions)")
     ax3.set_title("Success Trials (Big Outcome) per Batch")
 
@@ -172,10 +195,21 @@ def plot_pid_results(root_dir="PID-results"):
     ax4.set_xlabel("Time (s)")
     ax4.set_ylabel("Average TD Error")
 
+    # Maximize figuer to fit the whole screen (unfinished)
+    mng = plt.get_current_fig_manager()
+    try:
+        mng.window.showMaximized()        # Qt backends
+    except AttributeError:
+        try:
+            mng.window.state('zoomed')    # TkAgg on Windows
+        except AttributeError:
+            mng.full_screen_toggle()
+
     # Save the figure
     plt.tight_layout()
     fig_path = os.path.join(latest, "PID-results.png")
     fig.savefig(fig_path, dpi=300)
+    print(f"Figure saved to: {fig_path}")
     plt.show()
 
 
