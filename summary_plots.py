@@ -6,7 +6,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from plotfunctions import load_recorder_data, plotSEM, plotScatterBar, plotLine
 
-
 repo_path = os.path.abspath("./PID-Accelerated-TD-Learning")
 if repo_path not in sys.path:
     sys.path.insert(0, repo_path)
@@ -176,37 +175,39 @@ def plot_pid_results(root_dir="PID-results"):
     plotScatterBar(td_flat_data, labels=labels, colors=colors, style='box', ax=ax2)
     ax2.set_ylabel("TD Amplitude")
     ax2.set_title("TD Amplitude (Last 25% of Trials)")
-#     # TD traces
-#     print("Plotting TD traces...")
-#     for i, ((k, o), td_sessions) in enumerate(all_td.items()):
-#         arr = np.stack(td_sessions)
-#         plotSEM(trial_axis, arr, color=colors[i], ax=ax2, label=f"kd={k},omit={o}")
-#         # ax2.plot(arr.mean(0), color=colors[i], linewidth=1.5, label=f"kd={k},omit={o}")
-#     ax2.set_title("TD Amplitude During Cue Across Trials")
-#     ax2.set_xlabel("Trial")
-#     ax2.set_ylabel("TD Amplitude")
 
-    # Success trials
+    # Reward‐count >2
     print("Plotting success trials...")
     plotScatterBar(success_trials.values(),labels=labels, colors=colors, style='bar', ax=ax3)
     ax3.set_ylabel("Rewards (avg over sessions)")
     ax3.set_title("Success Trials (Big Outcome) per Batch")
-    
-    
+
+    # Average TD‐error
+    # print("Plotting average TD error traces...")
+    # for i, ((k, o), errs) in enumerate(cue_errors.items()):
+    #     stacked = np.concatenate(errs, axis=0)
+    #     # plotSEM(t_axis, stacked, color=colors[i], ax=ax4, label=f"kd={k},omit={o}")
+    #     ax4.plot(t_axis, stacked.mean(0), color=colors[i], linewidth=1, label=f"kd={k},omit={o}")
+    # ymin, ymax = ax4.get_ylim()
+    # ax4.fill_betweenx([ymin, ymax], 0, 0.5, color='tab:orange', alpha=0.2)
+    # ax4.set_ylim(ymin, ymax)
+    # ax4.set_title("Average TD Error Trace Per Batch")
+    # ax4.set_xlabel("Time (s)")
+    # ax4.set_ylabel("Average TD Error")
+
+
     # success/performance by omission level
     # currently defining performance as success_trials
-    print("Plotting success by omisssion level...")
+    print("Plotting success by omisssion level")
     plotLine(unique_omits=unique_omits, performance=success_trials, ax=ax4)
-    ax4.set_xticks(np.arange(len(unique_omits)))
-    ax4.set_xticklabels([f"omit={o}" for o in unique_omits])
-    ax4.set_ylabel("Avg Success Trials")
-    ax4.set_title("Success Trials by Omission Level")
+    ax4.set_ylabel("Δ Avg Success Trials\n(from kd=0)")
+    ax4.set_title("Δ in Performance from kd=0")
     ax4.legend(
-      title="KD",
-      loc="upper left",
-      bbox_to_anchor=(1.02, 1.0),
-      borderaxespad=0,
-      frameon=False
+        title="KD levels",
+        loc="upper left",
+        bbox_to_anchor=(1.02, 1.0),
+        borderaxespad=0,
+        frameon=False
     )
     
 
@@ -219,7 +220,6 @@ def plot_pid_results(root_dir="PID-results"):
             mng.window.state('zoomed')    # TkAgg on Windows
         except AttributeError:
             mng.full_screen_toggle()
-
 
     # Save the figure
     plt.tight_layout()
