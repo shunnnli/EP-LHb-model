@@ -61,7 +61,7 @@ def extract_batch_data(batches):
 
             all_rewards.extend(reward_history)
             td_amplitudes.append(np.array(trial_TD_amplitude))
-            count = np.sum(np.array(trial_anticipatory_licks) > 2)
+            count = np.sum(np.array(trial_anticipatory_licks) >= 2)
             success_per_session.append(count)
             cue_error = np.array(cue_error)  # shape: (num_trials, time_steps)
             cue_errors.append(cue_error)
@@ -167,6 +167,7 @@ def plot_pid_results(root_dir="PID-results"):
     ax1.set_ylabel("Reward")
     ax1.set_title("Combined Reward Distribution Per Batch")
 
+
     # TD Amplitudes: last 25% of trials per session
     print("Plotting TD amplitudes (last 25%)...")
     td_flat_data = []
@@ -176,26 +177,18 @@ def plot_pid_results(root_dir="PID-results"):
     plotScatterBar(td_flat_data, labels=labels, colors=colors, style='box', ax=ax2)
     ax2.set_ylabel("TD Amplitude")
     ax2.set_title("TD Amplitude (Last 25% of Trials)")
-#     # TD traces
-#     print("Plotting TD traces...")
-#     for i, ((k, o), td_sessions) in enumerate(all_td.items()):
-#         arr = np.stack(td_sessions)
-#         plotSEM(trial_axis, arr, color=colors[i], ax=ax2, label=f"kd={k},omit={o}")
-#         # ax2.plot(arr.mean(0), color=colors[i], linewidth=1.5, label=f"kd={k},omit={o}")
-#     ax2.set_title("TD Amplitude During Cue Across Trials")
-#     ax2.set_xlabel("Trial")
-#     ax2.set_ylabel("TD Amplitude")
+
 
     # Success trials
     print("Plotting success trials...")
     plotScatterBar(success_trials.values(),labels=labels, colors=colors, style='bar', ax=ax3)
     ax3.set_ylabel("Rewards (avg over sessions)")
-    ax3.set_title("Success Trials (Big Outcome) per Batch")
+    ax3.set_title("Success trials per Batch")
     
     
-    # success/performance by omission level
+    # Success/performance by omission level
     # currently defining performance as success_trials
-    print("Plotting success by omisssion level...")
+    print("Plotting performance delta by omisssion level...")
     plotLine(unique_omits=unique_omits, performance=success_trials, ax=ax4)
     ax4.set_xticks(np.arange(len(unique_omits)))
     ax4.set_xticklabels([f"omit={o}" for o in unique_omits])
@@ -208,7 +201,6 @@ def plot_pid_results(root_dir="PID-results"):
       borderaxespad=0,
       frameon=False
     )
-    
 
     # Maximize figuer to fit the whole screen (unfinished)
     mng = plt.get_current_fig_manager()
