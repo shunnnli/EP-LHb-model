@@ -67,7 +67,7 @@ def plotScatterBar(data,
                    colors=None,
                    width=0.6,
                    scatter_alpha=0.8,
-                   error_bar_width=1,
+                   error_bar_width=2,
                    error_bar_darker_factor=0.7):
     """
     Plot either:
@@ -183,7 +183,8 @@ def plotScatterBar(data,
                 mean,
                 yerr=sem,
                 fmt='none',
-                capsize=5,
+                capsize=error_bar_width,
+                capthick=error_bar_width, 
                 elinewidth=error_bar_width,
                 ecolor=dc
             )
