@@ -46,17 +46,12 @@ def extract_batch_data(batches):
             post_steps = session_params['post_steps']
             dt = session_params['dt']
             recorder = session_data['recorder']
-            (
-                _,
-                reward_history,
-                *_,
-                cue_error,
-                _,
-                trial_anticipatory_licks,
-                trial_TD_amplitude,
-                t_axis,
-                _,
-            ) = load_recorder_data(recorder, dt=dt, pre_steps=pre_steps, post_steps=post_steps)
+            output_dict = load_recorder_data(recorder, dt=dt, pre_steps=pre_steps, post_steps=post_steps)
+            reward_history = output_dict['reward_history']
+            cue_error = output_dict['cue_error']
+            trial_anticipatory_licks = output_dict['trial_anticipatory_licks']
+            trial_TD_amplitude = output_dict['trial_TD_amplitude']
+            t_axis = output_dict['t_axis']
 
             all_rewards.extend(reward_history)
             td_amplitudes.append(np.array(trial_TD_amplitude))

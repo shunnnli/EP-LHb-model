@@ -48,6 +48,12 @@ class SessionRecorder:
         self.ki = []
         self.kd = []
 
+        # For EPLHb output and coeff
+        if not hasattr(self, 'eplhb_out'):
+            self.eplhb_out = []
+        if not hasattr(self, 'eplhb_coeff'):
+            self.eplhb_coeff = []
+
     def record_env_step(self, trial_idx, action, reward, new_obs, info, model=None):
         """Call right after env.step(...)"""
         # 1) compute instant TD‐error for _this_ transition
@@ -103,6 +109,21 @@ class SessionRecorder:
         # 5) record the trial index
         self.trial_idx.append(trial_idx)
 
+        # 6) If model is EPLHb_DQN, record EPLHb output and coeff
+        if model is not None and hasattr(model, 'policy'):
+            q_net = getattr(model.policy, 'q_net', None)
+            if q_net is not None and hasattr(q_net, 'forward_full') and hasattr(q_net, 'eplhb_coeff'):
+                obs_t = torch.as_tensor(new_obs).unsqueeze(0).to(model.device)
+                with torch.no_grad():
+                    result = q_net.forward_full(obs_t)
+                if result is not None and len(result) == 3:
+                    _, _, eplhb_out = result
+                    self.eplhb_out.append(float(eplhb_out.item()) if hasattr(eplhb_out, 'item') else float(eplhb_out))
+                else:
+                    self.eplhb_out.append(None)
+                coeff = q_net.eplhb_coeff
+                self.eplhb_coeff.append(float(coeff.item()) if hasattr(coeff, 'item') else float(coeff))
+
 
 class SessionRecorderCallback(BaseCallback):
     """
@@ -118,8 +139,8 @@ class SessionRecorderCallback(BaseCallback):
     """
     def __init__(self, lick_action=1, verbose=0):
         super().__init__(verbose)
-        # Decouples the logger from your env’s encoding. 
-        # If you ever change your env so that “lick” is action 2 instead of 1, 
+        # Decouples the logger from your env's encoding. 
+        # If you ever change your env so that "lick" is action 2 instead of 1, 
         # you just pass lick_action=2 into the callback—no need to rewrite any logging code.
         self.lick_action = lick_action
 

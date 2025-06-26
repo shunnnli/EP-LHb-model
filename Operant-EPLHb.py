@@ -50,7 +50,7 @@ session_params = {
 # PID-DQN parameters
 pid_params = {
     "learning_rate": 1e-3,
-    "eplhb_lr": 1e-10,
+    "eplhb_lr": 1e-5,
     "coeff_lr": 1e-10,
 
     "replay_memory_size": session_params["buffer_size"],
@@ -270,7 +270,7 @@ while trial_idx < num_trials:
 
             # By calling q_reward = q_net(next_t) you explicitly feed the online net the next observation 
             # and let its hidden state advance to reflect that transition.
-            # Without that, the hidden state of the online net never “sees” the reward‐state until the following time step, 
+            # Without that, the hidden state of the online net never "sees" the reward‐state until the following time step, 
             # so your RNN is perpetually one step behind. Over many steps—especially in those ENL‐stuck trials—that misalignment can cause it to keep choosing the same action forever.
             q_cue    = model.policy.q_net(obs_t)[0, action_scalar].item()
             q_reward = model.policy.q_net(next_t)[0, action_scalar].item()

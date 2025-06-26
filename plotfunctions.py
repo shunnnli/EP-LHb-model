@@ -307,6 +307,7 @@ def load_recorder_data(recorder,
     ki_step = np.array(recorder.ki)[1:]
     kd_step = np.array(recorder.kd)[1:]
     update_step = kp_step * p_step + ki_step * i_step + kd_step * d_step
+    
 
     # Get trial based history
     trial_idx    = np.array(recorder.trial_idx)[1:]
@@ -333,6 +334,18 @@ def load_recorder_data(recorder,
 
     # Get TD signal during the cue window
     trial_TD_amplitude = get_amplitude(cue_error, window=(pre_steps, pre_steps + cue_steps))
+
+    # Get EPLHb output
+    if hasattr(recorder, 'eplhb_out'):
+        eplhb_out = np.array(recorder.eplhb_out)[1:]
+        eplhb_coeff = np.array(recorder.eplhb_coeff)[1:]
+        cue_EPLHb_output = get_traces(eplhb_out, tones, pre_steps, post_steps)
+        cue_EPLHb_coeff = get_traces(eplhb_coeff, tones, pre_steps, post_steps)
+    else:
+        eplhb_out = None
+        eplhb_coeff = None
+        cue_EPLHb_output = None
+        cue_EPLHb_coeff = None 
 
     # ----------------------------------------------------------------------
     # Fill tds_PD and tds_TD with zeros if not provided
@@ -369,8 +382,28 @@ def load_recorder_data(recorder,
         for trial_tds in cue_error
     ], axis=0)
 
-    return num_trials, reward_history, kp_history, ki_history, kd_history, cue_licks, cue_error, cue_omissions, trial_anticipatory_licks, trial_TD_amplitude, t_axis, trial_axis
-
+    # Build output dictionary
+    output_dict = {
+        'num_trials': num_trials,
+        'reward_history': reward_history,
+        'kp_history': kp_history,
+        'ki_history': ki_history,
+        'kd_history': kd_history,
+        'update_step': update_step,
+        'cue_licks': cue_licks,
+        'cue_error': cue_error,
+        'cue_omissions': cue_omissions,
+        'trial_anticipatory_licks': trial_anticipatory_licks,
+        'trial_TD_amplitude': trial_TD_amplitude,
+        't_axis': t_axis,
+        'trial_axis': trial_axis,
+        'DAs': DAs,
+        'eplhb_out': eplhb_out,
+        'eplhb_coeff': eplhb_coeff,
+        'cue_EPLHb_output': cue_EPLHb_output,
+        'cue_EPLHb_coeff': cue_EPLHb_coeff,
+    }
+    return output_dict
 
 
 def plot_figure(recorder,
@@ -383,19 +416,7 @@ def plot_figure(recorder,
     
 
     # load recorder data
-    (   num_trials,
-        reward_history,
-        kp_history,
-        ki_history,
-        kd_history,
-        cue_licks,
-        cue_error,
-        cue_omissions,
-        trial_anticipatory_licks,
-        trial_TD_amplitude,
-        t_axis,
-        trial_axis
-    ) = load_recorder_data(
+    output_dict = load_recorder_data(
         recorder,
         tds_PD=tds_PD,
         tds_TD=tds_TD,
@@ -413,26 +434,36 @@ def plot_figure(recorder,
 
     # top‐left: Reward per trial
     ax0 = fig.add_subplot(gs[0, 0])
-    ax0.plot(trial_axis,reward_history)
+    ax0.plot(output_dict['trial_axis'],output_dict['reward_history'])
     ax0.set_title(f"Reward per trial")
     ax0.set_xlabel("Trial")
     ax0.set_ylabel("Total Reward")
 
-    # top-middle: Kp, Kd, Ki trace
-    ax1 = fig.add_subplot(gs[0, 1])
-    ax1.plot(trial_axis,kp_history, label='Kp', color='tab:blue', alpha=0.7)
-    ax1.plot(trial_axis,ki_history, label='Ki', color='tab:orange', alpha=0.7)
-    ax1.plot(trial_axis,kd_history, label='Kd', color='tab:red', alpha=0.7)
-    ax1.set_title(f"PID Parameters")
-    ax1.set_xlabel("Trial")
-    ax1.set_ylabel("Parameter Value")
-    ax1.legend(loc='upper left', fontsize=10, frameon=False)
+    # top-middle: Kp, Kd, Ki trace or EPLHb
+    if hasattr(recorder, 'eplhb_out'):
+        # if recorder have eplhb_out, plot it
+        ax1 = fig.add_subplot(gs[0, 1])
+        plotSEM(output_dict['t_axis'], output_dict['cue_EPLHb_output'], omissions=output_dict['cue_omissions'], label="EPLHb output", color='tab:green', ax=ax1, alpha=0.1)
+        ax1.set_title(f"EPLHb output")
+        ax1.set_xlabel("Time (s)")
+        ax1.set_ylabel("EPLHb output")
+        ax1.legend(loc='upper left', fontsize=10, frameon=False)
+    else: 
+        # top-middle: Kp, Kd, Ki trace
+        ax1 = fig.add_subplot(gs[0, 1])
+        ax1.plot(output_dict['trial_axis'],output_dict['kp_history'], label='Kp', color='tab:blue', alpha=0.7)
+        ax1.plot(output_dict['trial_axis'],output_dict['ki_history'], label='Ki', color='tab:orange', alpha=0.7)
+        ax1.plot(output_dict['trial_axis'],output_dict['kd_history'], label='Kd', color='tab:red', alpha=0.7)
+        ax1.set_title(f"PID Parameters")
+        ax1.set_xlabel("Trial")
+        ax1.set_ylabel("Parameter Value")
+        ax1.legend(loc='upper left', fontsize=10, frameon=False)
 
     # middle‐left: Lick raster (scatter)
     ax2 = fig.add_subplot(gs[1, 0])
-    for i in range(num_trials):
-        lick_times = t_axis[cue_licks[i] == 1]
-        cur_omissions = t_axis[cue_omissions[i] == 1]
+    for i in range(output_dict['num_trials']):
+        lick_times = output_dict['t_axis'][output_dict['cue_licks'][i] == 1]
+        cur_omissions = output_dict['t_axis'][output_dict['cue_omissions'][i] == 1]
         has_omission = len(cur_omissions) > 0
         if has_omission:
             ax2.scatter(lick_times, np.ones_like(lick_times)*(i+1),
@@ -441,16 +472,16 @@ def plot_figure(recorder,
             ax2.scatter(lick_times, np.ones_like(lick_times)*(i+1),
                         color='tab:blue', s=10, marker='o', alpha=0.8, edgecolor='none')
     # mark cue window
-    ax2.fill_betweenx([0, num_trials+1], 0, 0.5, color='tab:orange', alpha=0.2, edgecolor='None')
+    ax2.fill_betweenx([0, output_dict['num_trials']+1], 0, 0.5, color='tab:orange', alpha=0.2, edgecolor='None')
     ax2.set_title(f"Lick raster")
     ax2.set_xlabel("Time (s)")
     ax2.set_ylabel("Trial")
-    ax2.set_xlim(t_axis[0], t_axis[-1])
-    ax2.set_ylim(0.5, num_trials+1)
+    ax2.set_xlim(output_dict['t_axis'][0], output_dict['t_axis'][-1])
+    ax2.set_ylim(0.5, output_dict['num_trials']+1)
 
     # middle‐middle: average TD error + simulated DA signal
     ax3 = fig.add_subplot(gs[1, 1])
-    plotSEM(t_axis, cue_error, cue_omissions, label="TD Error", color='tab:blue', ax=ax3, alpha=0.1)
+    plotSEM(output_dict['t_axis'], output_dict['cue_error'], omissions=output_dict['cue_omissions'], label="TD Error", color='tab:blue', ax=ax3, alpha=0.1)
     
     # plotSEM(t_axis, DAs, label="DA Signal", color='tab:green', ax=ax3, alpha=0.2)
     # shade cue
@@ -464,14 +495,14 @@ def plot_figure(recorder,
 
     # bottom left: lick number during cue per trial (i.e. anticipatory licking)
     ax4 = fig.add_subplot(gs[2, 0])
-    ax4.plot(trial_axis, trial_anticipatory_licks, color='tab:blue')
+    ax4.plot(output_dict['trial_axis'], output_dict['trial_anticipatory_licks'], color='tab:blue')
     ax4.set_title("Anticipatory licks")
     ax4.set_xlabel("Trial")
     ax4.set_ylabel("Lick Count")
 
     # bottom right: amplitude of TD error during cue
     ax5 = fig.add_subplot(gs[2, 1])
-    ax5.plot(trial_axis, trial_TD_amplitude, color='tab:orange')
+    ax5.plot(output_dict['trial_axis'], output_dict['trial_TD_amplitude'], color='tab:orange')
     ax5.set_title("Amplitude of TD error during cue")
     ax5.set_xlabel("Trial")
     ax5.set_ylabel("Amplitude")
@@ -501,12 +532,12 @@ def plot_figure(recorder,
 
     # the new heatmap, spanning both rows in column 3
     ax_heat = fig.add_subplot(gs[:, 2])
-    data = cue_error
+    data = output_dict['cue_error'] 
     im = ax_heat.imshow(
         data,
         aspect='auto',
         interpolation='nearest',
-        extent=[t_axis[0], t_axis[-1], num_trials, 1],
+        extent=[output_dict['t_axis'][0], output_dict['t_axis'][-1], output_dict['num_trials'], 1],
         cmap='RdBu_r',
         vmin=-np.max(np.abs(data)),
         vmax=np.max(np.abs(data)),

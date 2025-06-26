@@ -207,7 +207,7 @@ class EPLHbNetwork(QNetwork):
         self.rnn_hidden_size = rnn_hidden_size
         self.rnn_num_layers  = rnn_num_layers
         self.eplhb_hidden_dim = eplhb_hidden_dim
-        self.eplhb_coeff = nn.Parameter(th.tensor(0.1))  # start at 0.1, for instance
+        self.eplhb_coeff = nn.Parameter(th.tensor(0.001))
 
         # override the pure-MLP q_net with an RNN → MLP
         self.rnn = nn.RNN(
