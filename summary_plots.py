@@ -46,17 +46,12 @@ def extract_batch_data(batches):
             post_steps = session_params['post_steps']
             dt = session_params['dt']
             recorder = session_data['recorder']
-            (
-                _,
-                reward_history,
-                *_,
-                cue_error,
-                _,
-                trial_anticipatory_licks,
-                trial_TD_amplitude,
-                t_axis,
-                _,
-            ) = load_recorder_data(recorder, dt=dt, pre_steps=pre_steps, post_steps=post_steps)
+            output_dict = load_recorder_data(recorder, dt=dt, pre_steps=pre_steps, post_steps=post_steps)
+            reward_history = output_dict['reward_history']
+            cue_error = output_dict['cue_error']
+            trial_anticipatory_licks = output_dict['trial_anticipatory_licks']
+            trial_TD_amplitude = output_dict['trial_TD_amplitude']
+            t_axis = output_dict['t_axis']
 
             all_rewards.extend(reward_history)
             td_amplitudes.append(np.array(trial_TD_amplitude))
@@ -181,18 +176,18 @@ def plot_pid_results(root_dir="PID-results"):
     # Success trials
     print("Plotting success trials...")
     plotScatterBar(success_trials.values(),labels=labels, colors=colors, style='bar', ax=ax3)
-    ax3.set_ylabel("Rewards (avg over sessions)")
-    ax3.set_title("Success trials per Batch")
+    ax3.set_ylabel("Success trials")
+    ax3.set_title("Success trials (>=2 anticipatory licks)")
     
     
     # Success/performance by omission level
     # currently defining performance as success_trials
     print("Plotting performance delta by omisssion level...")
     plotLine(unique_omits=unique_omits, performance=success_trials, ax=ax4)
+    # ax4.hlines(0, color='gray', linestyle='--', linewidth=0.5)
     ax4.set_ylabel("Δ Avg Success Trials\n(from kd=0)")
-    ax4.set_title("Δ in Performance from kd=0")
-    ax4.legend(title="Kd levels", loc="upper left",
-        bbox_to_anchor=(1.02, 1.0), borderaxespad=0,frameon=False)
+    ax4.set_title("Δ in Performance from Kd=0")
+    ax4.legend(title="Kd levels", loc="upper left", bbox_to_anchor=(1.02, 1.0), borderaxespad=0,frameon=False)
 
     # Maximize figuer to fit the whole screen (unfinished)
     mng = plt.get_current_fig_manager()

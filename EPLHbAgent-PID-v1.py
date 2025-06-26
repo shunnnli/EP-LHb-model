@@ -7,10 +7,14 @@ import random
 import matplotlib.pyplot as plt
 from collections import deque
 import torch.nn.functional as F
-import os
+import os, sys
 from scipy.ndimage import uniform_filter1d
 from scipy.stats import ttest_rel
 from statsmodels.stats.multitest import multipletests
+
+repo_path = os.path.abspath("./PID-Accelerated-TD-Learning")
+if repo_path not in sys.path:
+    sys.path.insert(0, repo_path)
 
 # Set seeds for reproducibility
 
@@ -23,8 +27,7 @@ def seed_everything(seed=0):
 config = {
     'render': True,                 # Toggle rendering
     'env_name': "CartPole-v1",      # Environment name
-    # 'env_name': "CliffWalking-v0",   # Environment name (unfinished)
-    'rules': ['PID'],           # List of rules to use
+    'rules': ['PID'],               # List of rules to use
 
     'n_networks': 1,                 # Number of networks to train
     'n_episodes': 500,               # Number of episodes to train
