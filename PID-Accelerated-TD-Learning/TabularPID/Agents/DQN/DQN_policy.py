@@ -171,6 +171,115 @@ class RNNQNetwork(QNetwork):
         # 6) squash seq dim and feed through your MLP head
         out = out.squeeze(1)            # (batch, hidden)
         return self.post_rnn(out)       # (batch, num_actions)
+    
+
+
+
+class EPLHbNetwork(QNetwork):
+    """
+    Same as QNetwork but with a one‐step RNN prior to the MLP head.
+    All other methods (_predict, _get_constructor_parameters, reset_parameters)
+    are inherited directly from QNetwork.
+    """
+
+    def __init__(
+        self,
+        observation_space: spaces.Space,
+        action_space: spaces.Discrete,
+        features_extractor: BaseFeaturesExtractor,
+        features_dim: int,
+        net_arch: Optional[List[int]] = None,
+        activation_fn: Type[nn.Module] = nn.ReLU,
+        normalize_images: bool = True,
+        rnn_hidden_size: int = 128,
+        rnn_num_layers: int = 1,
+        eplhb_hidden_dim: int = 32,
+    ) -> None:
+        # initialize features_extractor + MLP defaults
+        super().__init__(
+            observation_space,
+            action_space,
+            features_extractor=features_extractor,
+            features_dim=features_dim,
+            net_arch=net_arch,
+            activation_fn=activation_fn,
+            normalize_images=normalize_images,
+        )
+
+        self.rnn_hidden_size = rnn_hidden_size
+        self.rnn_num_layers  = rnn_num_layers
+        self.eplhb_hidden_dim = eplhb_hidden_dim
+        self.eplhb_coeff = nn.Parameter(th.tensor(0.1))  # start at 0.1, for instance
+
+        # override the pure-MLP q_net with an RNN → MLP
+        self.rnn = nn.RNN(
+            input_size=self.features_dim,
+            hidden_size=rnn_hidden_size,
+            num_layers=rnn_num_layers,
+            batch_first=True,
+        )
+        # post-RNN MLP head to actions
+        layers = create_mlp(
+            input_dim=rnn_hidden_size,
+            output_dim=self.action_space.n,
+            net_arch=self.net_arch,
+            activation_fn=self.activation_fn,
+        )
+        self.post_rnn = nn.Sequential(*layers)
+
+        # --- NEW: EPLHb MLP ---
+        # input is [rnn_hidden + Q-MLP pre-output], map to a scalar
+        self.eplhb = nn.Sequential(
+            nn.Linear(rnn_hidden_size + self.action_space.n, self.eplhb_hidden_dim),
+            nn.ReLU(),
+            nn.Linear(self.eplhb_hidden_dim, 1)
+        )
+
+        # placeholder for hidden state; will be (num_layers, batch, hidden_size)
+        self._h = None
+
+    def reset_hidden(self, batch_size: int = 1, device: th.device = None) -> None:
+        """Zero out the hidden state. Call this at the start of each new episode."""
+        device = device or next(self.parameters()).device
+        self._h = th.zeros(self.rnn_num_layers, batch_size, self.rnn_hidden_size, device=device)
+
+    def forward(self, obs: th.Tensor) -> th.Tensor:
+        # 1) extract features
+        features = self.extract_features(obs, self.features_extractor)
+        # 2) add time-dim: (batch, seq=1, feat_dim)
+        rnn_in = features.unsqueeze(1)
+
+        # 3) if this is the very first call (or after reset), init hidden
+        if self._h is None or self._h.size(1) != obs.size(0):
+            # assume batch = obs.shape[0]
+            self.reset_hidden(batch_size=obs.size(0), device=obs.device)
+
+        # 4) run RNN with the *previous* hidden state
+        #    out: (batch, seq=1, hidden), h_n: (num_layers, batch, hidden)
+        out, h_n = self.rnn(rnn_in, self._h)
+        last_embed = out[:, -1, :]  # (batch, hidden) - last time step output
+
+        # 5) detach and cache the new hidden state for next call
+        self._h = h_n.detach()
+
+        # 6) squash seq dim and feed through your MLP head (why not last embed as input?)
+        out = out.squeeze(1)            # (batch, hidden)
+        q_out = self.post_rnn(out)       # (batch, num_actions)
+
+        # 7) concatenate RNN output with Q-MLP output for EPLHb
+        concat = th.cat([last_embed, q_out], dim=-1)  # (batch, rnn_hidden+action_dim)
+        eplhb_out = self.eplhb(concat).squeeze(-1)   # (batch,)
+
+        return q_out, h_n, eplhb_out       # (batch, num_actions)
+
+
+
+
+
+
+
+
+
 
 
 class DQNPolicy(BasePolicy):
