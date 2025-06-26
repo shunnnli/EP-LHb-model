@@ -30,6 +30,7 @@ class SessionRecorder:
         
         # session‐by‐step logs
         self.td_errors = []
+        self.td_pid_errors = []
         self.licks     = []
         self.tones     = []
         self.rewards   = []
@@ -50,30 +51,75 @@ class SessionRecorder:
 
     def record_env_step(self, trial_idx, action, reward, new_obs, info, model=None):
         """Call right after env.step(...)"""
-        # 1) compute instant TD‐error for _this_ transition
+        import numpy as np
+        import torch
+
         td = 0.0
+        td_pid = 0.0
         done = int(info.get("done", False))
+
+        # Convert action to Python int if needed
+        if isinstance(action, np.ndarray):
+            action = int(action.item())
+
         if self._prev_obs is not None and model is not None:
-            obs_t      = torch.as_tensor(self._prev_obs).unsqueeze(0).to(model.device)
-            next_t     = torch.as_tensor(new_obs).unsqueeze(0).to(model.device)
+            obs_t  = torch.as_tensor(self._prev_obs, dtype=torch.float32).unsqueeze(0).to(model.device)
+            next_t = torch.as_tensor(new_obs, dtype=torch.float32).unsqueeze(0).to(model.device)
+            a_t    = torch.tensor([[action]], device=model.device, dtype=torch.long)
+
             with torch.no_grad():
-                q_cur  = model.q_net(obs_t)[0, action]
-                q_next = model.q_net_target(next_t).max(1)[0]
-                td     = (reward + (1 - done) * model.gamma * q_next - q_cur).item()
+                q_cur  = model.q_net(obs_t)[0, action]           # scalar Q(s, a)
+                q_next = model.q_net_target(next_t).max(1)[0]    # max_a' Q'(s', a')
+
+                td_tensor = reward + (1 - done) * model.gamma * q_next - q_cur
+                td = td_tensor.item()
+
+                # Get PID gains
+                kp, ki, kd, alpha, beta = model.gain_adapter.get_gains(obs_t, a_t, None)
+
+                # Proportional term
+                p = td_tensor  # still a tensor
+
+                # Initialize integrator state if missing
+                if not hasattr(self, "z_prev"):
+                    self.z_prev = torch.tensor(0.0, device=model.device)
+
+                # Integral term
+                i = beta * self.z_prev + alpha * p
+                self.z_prev = i  # update for next step
+
+                # Derivative term
+                d_val = model.d_net(obs_t)  # [1, n_actions]
+                d = q_cur - d_val.gather(1, a_t).squeeze(1)  # scalar tensor
+
+                # PID TD error
+                td_pid_tensor = kp * p + ki * i + kd * d
+                td_pid = td_pid_tensor.item()
+
+                # sanity check: ensure td tensor + PID components = td_pid
+                # td_pid_reconstructed = (kp * (td_tensor) + ki * i + kd * (q_cur - d_val.gather(1, a_t).squeeze(1))).item()
+                # print("td:", td, "td_pid:", td_pid, "td_pid_reconstructed:", td_pid_reconstructed)
+
+        else:
+            if not hasattr(self, "z_prev"):
+                self.z_prev = torch.tensor(0.0)
+
         self._prev_obs = new_obs
 
-        # 2) flags
-        lick_flag = int(action == self.lick_action)
-        tone_flag = int(info.get("cue", False))
+
+        # Flags
+        lick_flag     = int(action == self.lick_action)
+        tone_flag     = int(info.get("cue", False))
         omission_flag = int(info.get("outcome", False) == "omission")
 
-        # 3) append
+
+        # append
         self.td_errors.append(td)
-        self.licks    .append(lick_flag)
-        self.tones    .append(tone_flag)
-        self.rewards  .append(reward)
-        self.dones    .append(bool(info.get("done", False)))
-        self.losses   .append(model.logger.name_to_value.get("train/loss", 0.0))
+        self.td_pid_errors.append(td_pid)
+        self.licks.append(lick_flag)
+        self.tones.append(tone_flag)
+        self.rewards.append(reward)
+        self.dones.append(bool(info.get("done", False)))
         self.omissions.append(omission_flag)
 
         # 4) record PID gains
@@ -102,6 +148,8 @@ class SessionRecorder:
 
         # 5) record the trial index
         self.trial_idx.append(trial_idx)
+
+
 
 
 class SessionRecorderCallback(BaseCallback):
