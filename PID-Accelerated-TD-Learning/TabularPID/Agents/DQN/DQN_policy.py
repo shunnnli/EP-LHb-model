@@ -173,11 +173,9 @@ class RNNQNetwork(QNetwork):
         return self.post_rnn(out)       # (batch, num_actions)
     
 
-
-
 class EPLHbNetwork(QNetwork):
     """
-    Same as QNetwork but with a one‐step RNN prior to the MLP head.
+    Same as QNetwork but with a one‐step RNN prior to the MLP head and an EPLHb layer.
     All other methods (_predict, _get_constructor_parameters, reset_parameters)
     are inherited directly from QNetwork.
     """
@@ -257,6 +255,30 @@ class EPLHbNetwork(QNetwork):
         # 4) run RNN with the *previous* hidden state
         #    out: (batch, seq=1, hidden), h_n: (num_layers, batch, hidden)
         out, h_n = self.rnn(rnn_in, self._h)
+
+        # 5) detach and cache the new hidden state for next call
+        self._h = h_n.detach()
+
+        # 6) squash seq dim and feed through your MLP head
+        out = out.squeeze(1)            # (batch, hidden)
+        q_out = self.post_rnn(out)       # (batch, num_actions)
+
+        return q_out
+
+    def forward_full(self, obs: th.Tensor):
+        # 1) extract features
+        features = self.extract_features(obs, self.features_extractor)
+        # 2) add time-dim: (batch, seq=1, feat_dim)
+        rnn_in = features.unsqueeze(1)
+
+        # 3) if this is the very first call (or after reset), init hidden
+        if self._h is None or self._h.size(1) != obs.size(0):
+            # assume batch = obs.shape[0]
+            self.reset_hidden(batch_size=obs.size(0), device=obs.device)
+
+        # 4) run RNN with the *previous* hidden state
+        #    out: (batch, seq=1, hidden), h_n: (num_layers, batch, hidden)
+        out, h_n = self.rnn(rnn_in, self._h)
         last_embed = out[:, -1, :]  # (batch, hidden) - last time step output
 
         # 5) detach and cache the new hidden state for next call
@@ -266,11 +288,11 @@ class EPLHbNetwork(QNetwork):
         out = out.squeeze(1)            # (batch, hidden)
         q_out = self.post_rnn(out)       # (batch, num_actions)
 
-        # 7) concatenate RNN output with Q-MLP output for EPLHb
-        concat = th.cat([last_embed, q_out], dim=-1)  # (batch, rnn_hidden+action_dim)
-        eplhb_out = self.eplhb(concat).squeeze(-1)   # (batch,)
+        # 7) concat last embed and q_out to feed to eplhb
+        concat = th.cat([last_embed, q_out], dim=-1)
+        eplhb_out = self.eplhb(concat).squeeze(-1)
 
-        return q_out, h_n, eplhb_out       # (batch, num_actions)
+        return q_out, h_n, eplhb_out
 
 
 
@@ -369,10 +391,31 @@ class DQNPolicy(BasePolicy):
         self.d_net.load_state_dict(self.q_net.state_dict())
         self.d_net.set_training_mode(False)  # Keep false so that we don't dropout anything here
 
+        # Set up parameter groups
+        main_lr = lr_schedule(1)
+        # Allow user to specify eplhb_lr and coeff_lr via optimizer_kwargs
+        eplhb_lr = self.optimizer_kwargs.pop('eplhb_lr', 1e-4)
+        coeff_lr = self.optimizer_kwargs.pop('coeff_lr', 1e-5)
+
+        from .DQN_policy import EPLHbNetwork
+        if isinstance(self.q_net, EPLHbNetwork):
+            eplhb_params = list(self.q_net.eplhb.parameters())
+            eplhb_coeff_param = [self.q_net.eplhb_coeff]
+        else:
+            eplhb_params = []
+            eplhb_coeff_param = []
+        other_params = [
+            p for n, p in self.q_net.named_parameters()
+            if not n.startswith('eplhb.') and n != 'eplhb_coeff'
+        ]
+
         # Setup optimizer with initial learning rate
         self.optimizer = self.optimizer_class(  # type: ignore[call-arg]
-            self.parameters(),
-            lr=lr_schedule(1),
+            [
+                {'params': other_params, 'lr': main_lr},
+                {'params': eplhb_params, 'lr': eplhb_lr},
+                {'params': eplhb_coeff_param, 'lr': coeff_lr},
+            ],
             **self.optimizer_kwargs,
         )
 

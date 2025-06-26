@@ -73,8 +73,8 @@ class EPLHb_DQN(OffPolicyAlgorithm):
     }
     # Linear schedule will be defined in `_setup_model()`
     exploration_schedule: Schedule
-    q_net: EPLHbNetwork
-    q_net_target: EPLHbNetwork
+    q_net: QNetwork
+    q_net_target: QNetwork
     policy: DQNPolicy
 
     def __init__(
@@ -101,6 +101,7 @@ class EPLHb_DQN(OffPolicyAlgorithm):
         stats_window_size: int = 100,
         tensorboard_log: Optional[str] = None,
         policy_kwargs: Optional[Dict[str, Any]] = None,
+        optimizer_kwargs: Optional[Dict[str, Any]] = None,
         verbose: int = 0,
         seed: Optional[int] = None,
         device: Union[th.device, str] = "auto",
@@ -111,6 +112,12 @@ class EPLHb_DQN(OffPolicyAlgorithm):
         policy_evaluation=False
     ) -> None:
         
+        if policy_kwargs is None:
+            policy_kwargs = {}
+        policy_kwargs.setdefault('with_EPLHb_layer', True)
+        if optimizer_kwargs is not None:
+            policy_kwargs['optimizer_kwargs'] = optimizer_kwargs
+
         super().__init__(
             policy,
             env,
@@ -280,7 +287,7 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             #     breakpoint()
 
             # Forward pass to get Q and EPLHb heads
-            q_pred, _, eplhb_out = self.q_net(replay_data.observations)
+            q_pred, _, eplhb_out = self.q_net.forward_full(replay_data.observations)
             # pick Q for the taken actions
             q_taken = th.gather(q_pred, dim=1, index=replay_data.actions.long()).squeeze(-1)
 
@@ -293,6 +300,10 @@ class EPLHb_DQN(OffPolicyAlgorithm):
 
             # pull out your learnable coeff
             eplhb_coeff = self.policy.q_net.eplhb_coeff
+            if isinstance(eplhb_coeff, th.nn.Parameter):
+                eplhb_coeff = eplhb_coeff.data.float()
+            else:
+                eplhb_coeff = th.tensor(eplhb_coeff, dtype=th.float32)
 
             # final joint loss
             final_loss = (
@@ -363,7 +374,7 @@ class EPLHb_DQN(OffPolicyAlgorithm):
 
             for t in range(L):
                 # current Q
-                q_t, hidden, eplhb_t = net(obs_seq[:, t, :],hidden)
+                q_t, _, eplhb_t = net.forward_full(obs_seq[:, t, :])
                 a_t  = act_seq[:, t].unsqueeze(1)        # [B, 1]
                 q_at = q_t.gather(1, a_t).squeeze(1)     # [B]
 
@@ -407,7 +418,7 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             # 6) one‐shot loss over full sequence
             q_pred = th.cat(q_pred_seq, dim=1)         # [B, L]
             target = th.cat(target_seq, dim=1)         # [B, L]
-            target = target.view_as(q_pred)   # reshape target to exactly q_pred’s shape
+            target = target.view_as(q_pred)   # reshape target to exactly q_pred's shape
 
             # stack all the eplhb outputs and grab the last time‐step
             eplhb_seq = th.cat(eplhb_seq, dim=1)  # [B, L]
@@ -419,6 +430,10 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             base_loss = F.smooth_l1_loss(q_pred, target) # [B, L]
             noise_seq = th.randn_like(td_error_seq)
             eplhb_coeff = self.policy.q_net.eplhb_coeff
+            if isinstance(eplhb_coeff, th.nn.Parameter):
+                eplhb_coeff = eplhb_coeff.data.float()
+            else:
+                eplhb_coeff = th.tensor(eplhb_coeff, dtype=th.float32)
 
             final_loss = (
                  base_loss
@@ -927,7 +942,7 @@ class PID_DQN(OffPolicyAlgorithm):
             # 6) one‐shot loss over full sequence
             q_pred = th.cat(q_pred_seq, dim=1)         # [B, L]
             target = th.cat(target_seq, dim=1)         # [B, L]
-            target = target.view_as(q_pred)   # reshape target to exactly q_pred’s shape
+            target = target.view_as(q_pred)   # reshape target to exactly q_pred's shape
             loss   = F.smooth_l1_loss(q_pred, target)
             losses.append(loss.item())
 

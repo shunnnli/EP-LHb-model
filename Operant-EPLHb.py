@@ -6,7 +6,7 @@ if repo_path not in sys.path:
 # from TabularPID.AgentBuilders.DQNBuilder import build_PID_DQN # not working for me
 from stable_baselines3.common.logger import configure
 from stable_baselines3.common.buffers import OnlineReplayBuffer
-from TabularPID.Agents.DQN.DQN import EPLHb_DQN
+from TabularPID.Agents.DQN.DQN import EPLHb_DQN, PID_DQN
 from TabularPID.Agents.DQN.DQN_gain_adapter import NoGainAdapter, SingleGainAdapter, DiagonalGainAdapter, NetworkGainAdapter
 
 import numpy as np
@@ -32,7 +32,7 @@ session_params = {
     "tau_on":           0.01,         # 10 ms
     "tau_off":          0.1,          # 100 ms
 
-    "omission_prob":    0.3,
+    "omission_prob":    0.1,
     "action_cost":      0.1,
     "enl_penalty":      0.2,
     "enl_threshold":    200,          # for accumulated & consecutive ENL licks
@@ -49,17 +49,10 @@ session_params = {
 
 # PID-DQN parameters
 pid_params = {
-    "kp": 1.0,
-    "ki": 0.0,
-    "kd": 0.0,
-    "meta_lr": 0,
-    "epsilon_gain": 0.1,
-    "alpha": 0.05,
-    "beta": 0.95,
-    "d_tau": 1,
-    "tabular_d": False,
-
     "learning_rate": 1e-3,
+    "eplhb_lr": 1e-10,
+    "coeff_lr": 1e-10,
+
     "replay_memory_size": session_params["buffer_size"],
     "batch_size": session_params["batch_size"],
     "tau": 1,
@@ -76,6 +69,16 @@ pid_params = {
     "is_double": False,
     "policy_evaluation": False,
     "seed": 1232,
+
+    "kp": 1.0,
+    "ki": 0.0,
+    "kd": 0.0,
+    "meta_lr": 0,
+    "epsilon_gain": 0.1,
+    "alpha": 0.05,
+    "beta": 0.95,
+    "d_tau": 1,
+    "tabular_d": False,
 }
 
 # Other params
@@ -109,7 +112,14 @@ gain_adapter = SingleGainAdapter(
 policy_kwargs = dict(
     net_arch=[pid_params["inner_size"], pid_params["inner_size"]],
     optimizer_class=optim.Adam,
-    with_RNN_layer=True,
+    with_RNN_layer=True
+)
+
+# EPLHb-specific optimizer kwargs
+optimizer_kwargs = dict(
+    eplhb_lr=1e-3,   # your custom learning rate for EPLHb layer
+    coeff_lr=5e-4,   # your custom learning rate for eplhb_coeff
+    # ... any other optimizer kwargs ...
 )
 
 # Prevent CUDA from being used (patch)
@@ -146,6 +156,7 @@ model = EPLHb_DQN(
     learning_starts=pid_params['learning_starts'],
     tensorboard_log=None,
     policy_kwargs=policy_kwargs,
+    optimizer_kwargs=optimizer_kwargs,
     seed=pid_params['seed'],
     device="cpu",
     dump_buffer=pid_params['dump_buffer'],
