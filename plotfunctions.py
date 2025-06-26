@@ -5,34 +5,31 @@ import pickle
 from matplotlib import cm
 import matplotlib.colors as mcolors
 
-def plotSEM(x, y, omissions=None, label=None, color=None, ax=None, alpha=0.2):
+def plotSEM(x, y, omissions=None, label=None, color=None, ax=None, alpha=0.2, fill=True):
     """Plot with shaded error margin and red for omissions."""
     if ax is None:
         ax = plt.gca()
     if color is None:
         color = ax._get_lines.get_next_color()
-    if label is None:
-        label = ax._get_lines.get_next_label()
 
     norm = mcolors.Normalize(vmin=0, vmax=len(y))
 
-    # plot with omissions
-    if omissions is not None:
+    if not fill:
         for i, trace in enumerate(y):
-            # Choose red if this trace is an omission, otherwise use default color
             if omissions is not None and 1 in omissions[i]:
-                alpha = 0.5
-                color = cm.get_cmap('Reds')(norm(i))
+                alpha_i = 0.5
+                color_i = cm.get_cmap('Reds')(norm(i))
             else:
-                color = cm.get_cmap('Blues')(norm(i))
-                alpha = 0.2
-            ax.plot(x, trace, linewidth=0.8, label="_nolegend_", color=color, alpha=alpha)
+                alpha_i = alpha
+                color_i = color
+            ax.plot(x, trace, linewidth=0.5, color=color_i, alpha=alpha_i, label="_nolegend_")
     else:
         mean = np.mean(y, axis=0)
-        std = np.std(y, axis=0)
-        ax.plot(x, mean, label=label, color=color)
-        ax.fill_between(x, mean - std, mean + std, alpha=alpha, color=color,
-                        edgecolor='None', label='_nolegend_')
+        std  = np.std(y, axis=0)
+        ax.plot(x, mean, color=color, label=label)
+        ax.fill_between(x, mean - std, mean + std, alpha=alpha, color=color, edgecolor='None', label="_nolegend_")
+        
+
     
 def get_traces(data, event, pre_steps, post_steps):
     data = np.asarray(data)
@@ -292,6 +289,7 @@ def load_recorder_data(recorder,
     
     # Load data from the recorder
     td_errors = np.array(recorder.td_errors)[1:]
+    td_pid_errors = np.array(recorder.td_pid_errors)[1:]
     licks     = np.array(recorder.licks)[1:]
     tones     = np.array(recorder.tones)[1:]
     omissions = np.array(recorder.omissions)[1:]
@@ -306,6 +304,9 @@ def load_recorder_data(recorder,
     kp_step = np.array(recorder.kp)[1:]
     ki_step = np.array(recorder.ki)[1:]
     kd_step = np.array(recorder.kd)[1:]
+    p_update_step = kp_step * p_step
+    i_update_step = ki_step * i_step
+    d_update_step = kd_step * d_step
     update_step = kp_step * p_step + ki_step * i_step + kd_step * d_step
 
     # Get trial based history
@@ -320,11 +321,16 @@ def load_recorder_data(recorder,
     kp_history = [kp_step[trial_idx == t].mean() for t in range(num_trials)]
     ki_history = [ki_step[trial_idx == t].mean() for t in range(num_trials)]
     kd_history = [kd_step[trial_idx == t].mean() for t in range(num_trials)]
+    p_kp_history = [p_update_step[trial_idx == t].mean() for t in range(num_trials)]
+    i_ki_history = [i_update_step[trial_idx == t].mean() for t in range(num_trials)]
+    d_kd_history = [d_update_step[trial_idx == t].mean() for t in range(num_trials)]
 
     # Align cue_licks and TD errors to the cue
     error = td_errors
+    pid_error = td_pid_errors
     cue_licks = get_traces(licks, tones, pre_steps, post_steps)
     cue_error   = get_traces(error, tones, pre_steps, post_steps)
+    cue_pid_error = get_traces(pid_error, tones, pre_steps, post_steps)
     cue_omissions = get_traces(omissions, tones, pre_steps, post_steps)
 
     # Count anticipatory licks (lick number during cue window)
@@ -333,6 +339,7 @@ def load_recorder_data(recorder,
 
     # Get TD signal during the cue window
     trial_TD_amplitude = get_amplitude(cue_error, window=(pre_steps, pre_steps + cue_steps))
+    trial_pid_TD_amplitude = get_amplitude(cue_pid_error, window=(pre_steps, pre_steps + cue_steps))
 
     # ----------------------------------------------------------------------
     # Fill tds_PD and tds_TD with zeros if not provided
@@ -346,6 +353,8 @@ def load_recorder_data(recorder,
         cue_licks = np.array(cue_licks)
     if not isinstance(cue_error, np.ndarray):
         cue_error = np.array(cue_error)
+    if not isinstance(cue_pid_error, np.ndarray):
+        cue_pid_error = np.array(cue_pid_error)
     if not isinstance(tds_PD, np.ndarray):
         tds_PD = np.array(tds_PD)
     if not isinstance(tds_TD, np.ndarray):
@@ -369,7 +378,9 @@ def load_recorder_data(recorder,
         for trial_tds in cue_error
     ], axis=0)
 
-    return num_trials, reward_history, kp_history, ki_history, kd_history, cue_licks, cue_error, cue_omissions, trial_anticipatory_licks, trial_TD_amplitude, t_axis, trial_axis
+    return (num_trials, reward_history, p_kp_history, i_ki_history, d_kd_history, kp_history, ki_history, 
+            kd_history, cue_licks, cue_error, cue_pid_error, cue_omissions, trial_anticipatory_licks, 
+            trial_TD_amplitude, trial_pid_TD_amplitude, t_axis, trial_axis, )
 
 
 
@@ -385,14 +396,19 @@ def plot_figure(recorder,
     # load recorder data
     (   num_trials,
         reward_history,
+        p_kp_history,
+        i_ki_history,
+        d_kd_history,
         kp_history,
         ki_history,
         kd_history,
         cue_licks,
         cue_error,
+        cue_pid_error,
         cue_omissions,
         trial_anticipatory_licks,
         trial_TD_amplitude,
+        trial_pid_TD_amplitude,
         t_axis,
         trial_axis
     ) = load_recorder_data(
@@ -420,9 +436,9 @@ def plot_figure(recorder,
 
     # top-middle: Kp, Kd, Ki trace
     ax1 = fig.add_subplot(gs[0, 1])
-    ax1.plot(trial_axis,kp_history, label='Kp', color='tab:blue', alpha=0.7)
-    ax1.plot(trial_axis,ki_history, label='Ki', color='tab:orange', alpha=0.7)
-    ax1.plot(trial_axis,kd_history, label='Kd', color='tab:red', alpha=0.7)
+    ax1.plot(trial_axis,p_kp_history, label='p*kp', color='tab:blue', alpha=0.7)
+    ax1.plot(trial_axis,i_ki_history, label='i*ki', color='tab:orange', alpha=0.7)
+    ax1.plot(trial_axis,d_kd_history, label='d*kd', color='tab:red', alpha=0.7)
     ax1.set_title(f"PID Parameters")
     ax1.set_xlabel("Trial")
     ax1.set_ylabel("Parameter Value")
@@ -450,8 +466,8 @@ def plot_figure(recorder,
 
     # middle‐middle: average TD error + simulated DA signal
     ax3 = fig.add_subplot(gs[1, 1])
-    plotSEM(t_axis, cue_error, cue_omissions, label="TD Error", color='tab:blue', ax=ax3, alpha=0.1)
-    
+    plotSEM(t_axis, cue_error, omissions=None, label="TD Error", color='tab:blue', ax=ax3, alpha=0.05, fill=False) 
+    plotSEM(t_axis, cue_pid_error, omissions=None, label="PID TD Error", color='tab:orange', ax=ax3, alpha=0.05, fill=False)
     # plotSEM(t_axis, DAs, label="DA Signal", color='tab:green', ax=ax3, alpha=0.2)
     # shade cue
     ymin, ymax = ax3.get_ylim()
@@ -460,6 +476,8 @@ def plot_figure(recorder,
     ax3.set_title(f"TD error vs time")
     ax3.set_xlabel("Time (s)")
     ax3.set_ylabel("TD Error")
+    ax3.plot([], [], color='tab:blue', label="TD Error", linewidth=1) # labeling
+    ax3.plot([], [], color='tab:orange', label="PID TD Error", linewidth=1) # labeling
     ax3.legend(loc='upper left', fontsize=10, frameon=False)
 
     # bottom left: lick number during cue per trial (i.e. anticipatory licking)
@@ -471,10 +489,12 @@ def plot_figure(recorder,
 
     # bottom right: amplitude of TD error during cue
     ax5 = fig.add_subplot(gs[2, 1])
-    ax5.plot(trial_axis, trial_TD_amplitude, color='tab:orange')
+    ax5.plot(trial_axis, trial_TD_amplitude, color='tab:blue', label='TD Amplitude', linewidth = 0.7)
+    ax5.plot(trial_axis, trial_pid_TD_amplitude, color='tab:orange', label='PID TD Amplitude', linewidth = 0.7)
     ax5.set_title("Amplitude of TD error during cue")
     ax5.set_xlabel("Trial")
     ax5.set_ylabel("Amplitude")
+    ax5.legend(loc='upper left', fontsize=10, frameon=False)
 
     # bottom left: raw cue_error
     # ax4 = fig.add_subplot(gs[2, 0])
