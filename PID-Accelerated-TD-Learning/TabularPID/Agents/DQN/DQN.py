@@ -14,7 +14,7 @@ from stable_baselines3.common.off_policy_algorithm import OffPolicyAlgorithm
 from stable_baselines3.common.policies import BasePolicy
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 from stable_baselines3.common.utils import get_linear_fn, get_parameters_by_name, polyak_update
-from TabularPID.Agents.DQN.DQN_policy import CnnPolicy, DQNPolicy, MlpPolicy, MultiInputPolicy, QNetwork
+from TabularPID.Agents.DQN.DQN_policy import CnnPolicy, DQNPolicy, MlpPolicy, MultiInputPolicy, QNetwork, EPLHbNetwork
 from TabularPID.OptimalRates.EvaluateBuffer import run_simulation
 
 SelfDQN = TypeVar("SelfDQN", bound="PID_DQN")
@@ -73,8 +73,8 @@ class EPLHb_DQN(OffPolicyAlgorithm):
     }
     # Linear schedule will be defined in `_setup_model()`
     exploration_schedule: Schedule
-    q_net: QNetwork
-    q_net_target: QNetwork
+    q_net: EPLHbNetwork
+    q_net_target: EPLHbNetwork
     policy: DQNPolicy
 
     def __init__(
@@ -110,6 +110,7 @@ class EPLHb_DQN(OffPolicyAlgorithm):
         optimal_model=None,
         policy_evaluation=False
     ) -> None:
+        
         super().__init__(
             policy,
             env,
@@ -279,7 +280,7 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             #     breakpoint()
 
             # Forward pass to get Q and EPLHb heads
-            q_pred, eplhb_out = self.q_net(replay_data.observations)
+            q_pred, _, eplhb_out = self.q_net(replay_data.observations)
             # pick Q for the taken actions
             q_taken = th.gather(q_pred, dim=1, index=replay_data.actions.long()).squeeze(-1)
 
@@ -353,17 +354,22 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             z_prev = batch.zs.squeeze(-1)[:, 0]         # [B]
 
             # 4) reset RNN hidden state
-            net.reset_hidden(batch_size=B, device=self.device)
+            hidden = net.reset_hidden(batch_size=B, device=self.device)
 
             # 5) unroll L steps, compute Q‐predictions & PID targets
             q_pred_seq = []
             target_seq = []
+            eplhb_seq  = []
 
             for t in range(L):
                 # current Q
-                q_t  = net(obs_seq[:, t, :])            # [B, n_actions]
+                q_t, hidden, eplhb_t = net(obs_seq[:, t, :],hidden)
                 a_t  = act_seq[:, t].unsqueeze(1)        # [B, 1]
                 q_at = q_t.gather(1, a_t).squeeze(1)     # [B]
+
+                # store eplhb output for later
+                eplhb_seq.append(eplhb_t.unsqueeze(1)) # [B, 1]
+
 
                 with th.no_grad():
                     # 1‐step Bellman target
@@ -402,28 +408,22 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             q_pred = th.cat(q_pred_seq, dim=1)         # [B, L]
             target = th.cat(target_seq, dim=1)         # [B, L]
             target = target.view_as(q_pred)   # reshape target to exactly q_pred’s shape
+
+            # stack all the eplhb outputs and grab the last time‐step
+            eplhb_seq = th.cat(eplhb_seq, dim=1)  # [B, L]
+            eplhb_last = eplhb_seq[:, -1]              # [B]
             
             # 6) one-shot loss over full sequence
             # q_pred_seq and target_seq are [B, L], so:
             td_error_seq = q_pred - target  # shape [B, L]
-            base_loss = F.smooth_l1_loss(q_pred, target)
-
-            # Now get eplhb for the **last** step (or mean over all steps)
-            # assuming your network returns eplhb_out at each step:
-            #    you’d need to modify the recurrent forward to also
-            #    accumulate eplhb_out_seq: [B, L]
-            # Here’s a simple last-step version:
-            _, _, eplhb_out_seq = self.q_net(obs_seq)  # you’ll have to pass the full seq
-            eplhb_last = eplhb_out_seq[:, -1]          # [B]
-
+            base_loss = F.smooth_l1_loss(q_pred, target) # [B, L]
             noise_seq = th.randn_like(td_error_seq)
-
             eplhb_coeff = self.policy.q_net.eplhb_coeff
 
             final_loss = (
-                base_loss
-                + eplhb_coeff * eplhb_last.mean()
-                + (noise_seq * td_error_seq).mean()
+                 base_loss
+                 + eplhb_coeff * eplhb_last.mean()
+                 + (noise_seq * td_error_seq).mean()
             )
 
             optim.zero_grad()

@@ -318,6 +318,7 @@ class DQNPolicy(BasePolicy):
         optimizer_class: Type[th.optim.Optimizer] = th.optim.Adam,
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
         with_RNN_layer: bool = True,
+        with_EPLHb_layer: bool = False,
     ) -> None:
         super().__init__(
             observation_space,
@@ -338,6 +339,7 @@ class DQNPolicy(BasePolicy):
         self.net_arch = net_arch
         self.activation_fn = activation_fn
         self.with_RNN_layer = with_RNN_layer
+        self.with_EPLHb_layer = with_EPLHb_layer
 
         self.net_args = {
             "observation_space": self.observation_space,
@@ -377,7 +379,9 @@ class DQNPolicy(BasePolicy):
     def make_q_net(self) -> QNetwork:
         # Make sure we always have separate networks for features extractors etc
         net_args = self._update_features_extractor(self.net_args, features_extractor=None)
-        net_cls = RNNQNetwork if self.with_RNN_layer else QNetwork
+        if self.with_EPLHb_layer: net_cls = EPLHbNetwork
+        elif self.with_RNN_layer: net_cls = RNNQNetwork
+        else: net_cls = QNetwork
         return net_cls(**net_args).to(self.device)
 
     def forward(self, obs: th.Tensor, deterministic: bool = True) -> th.Tensor:
