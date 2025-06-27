@@ -5,7 +5,7 @@ import pickle
 from matplotlib import cm
 import matplotlib.colors as mcolors
 
-def plotSEM(x, y, omissions=None, label=None, color=None, ax=None, alpha=0.2, fill=True):
+def plotSEM(x, y, omissions=None, label=None, color=None, ax=None, alpha=0.2, fill=False):
     """Plot with shaded error margin and red for omissions."""
     if ax is None:
         ax = plt.gca()

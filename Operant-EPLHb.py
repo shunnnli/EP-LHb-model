@@ -32,7 +32,7 @@ session_params = {
     "tau_on":           0.01,         # 10 ms
     "tau_off":          0.1,          # 100 ms
 
-    "omission_prob":    0.1,
+    "omission_prob":    0.05,
     "action_cost":      0.1,
     "enl_penalty":      0.2,
     "enl_threshold":    200,          # for accumulated & consecutive ENL licks

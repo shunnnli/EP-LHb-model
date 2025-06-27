@@ -210,7 +210,10 @@ class EPLHbNetwork(QNetwork):
         self.eplhb_hidden_dim = eplhb_hidden_dim
         
         # Allow user to specify initial eplhb_coeff value via policy_kwargs
-        self.eplhb_coeff = nn.Parameter(th.tensor(initial_eplhb_coeff))
+        # Use a transformation to ensure eplhb_coeff is always non-positive
+        self.eplhb_coeff_raw = nn.Parameter(th.tensor(initial_eplhb_coeff))
+        # Transform to ensure non-positive values: -exp(x) or -sigmoid(x)
+        # eplhb_coeff is now a property that returns -th.exp(self.eplhb_coeff_raw)
 
         # override the pure-MLP q_net with an RNN → MLP
         self.rnn = nn.RNN(
@@ -309,6 +312,11 @@ class EPLHbNetwork(QNetwork):
         eplhb_out = th.clamp(eplhb_out, min=-10.0, max=10.0)
 
         return q_out, h_n, eplhb_out
+
+    @property
+    def eplhb_coeff(self):
+        """Return the transformed eplhb_coeff, ensuring it's always non-positive."""
+        return -th.exp(self.eplhb_coeff_raw)
 
 
 
@@ -422,13 +430,13 @@ class DQNPolicy(BasePolicy):
         from .DQN_policy import EPLHbNetwork
         if isinstance(self.q_net, EPLHbNetwork):
             eplhb_params = list(self.q_net.eplhb.parameters())
-            eplhb_coeff_param = [self.q_net.eplhb_coeff]
+            eplhb_coeff_param = [self.q_net.eplhb_coeff_raw]
         else:
             eplhb_params = []
             eplhb_coeff_param = []
         other_params = [
             p for n, p in self.q_net.named_parameters()
-            if not n.startswith('eplhb.') and n != 'eplhb_coeff'
+            if not n.startswith('eplhb.') and n != 'eplhb_coeff_raw'
         ]
 
         # Setup optimizer with initial learning rate
