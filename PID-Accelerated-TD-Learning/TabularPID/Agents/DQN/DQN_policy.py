@@ -192,6 +192,7 @@ class EPLHbNetwork(QNetwork):
         rnn_hidden_size: int = 128,
         rnn_num_layers: int = 1,
         eplhb_hidden_dim: int = 32,
+        initial_eplhb_coeff: float = 0.01,
     ) -> None:
         # initialize features_extractor + MLP defaults
         super().__init__(
@@ -207,7 +208,9 @@ class EPLHbNetwork(QNetwork):
         self.rnn_hidden_size = rnn_hidden_size
         self.rnn_num_layers  = rnn_num_layers
         self.eplhb_hidden_dim = eplhb_hidden_dim
-        self.eplhb_coeff = nn.Parameter(th.tensor(0.001))
+        
+        # Allow user to specify initial eplhb_coeff value via policy_kwargs
+        self.eplhb_coeff = nn.Parameter(th.tensor(initial_eplhb_coeff))
 
         # override the pure-MLP q_net with an RNN → MLP
         self.rnn = nn.RNN(
@@ -232,6 +235,15 @@ class EPLHbNetwork(QNetwork):
             nn.ReLU(),
             nn.Linear(self.eplhb_hidden_dim, 1)
         )
+        
+        # Initialize EPLHb weights with small values to prevent large outputs
+        for layer in self.eplhb:
+            if isinstance(layer, nn.Linear):
+                nn.init.xavier_uniform_(layer.weight, gain=0.1)  # Small gain
+                nn.init.constant_(layer.bias, 0.0)
+        
+        # Add input normalization layer
+        self.input_norm = nn.LayerNorm(int(rnn_hidden_size + self.action_space.n))
 
         # placeholder for hidden state; will be (num_layers, batch, hidden_size)
         self._h = None
@@ -290,7 +302,11 @@ class EPLHbNetwork(QNetwork):
 
         # 7) concat last embed and q_out to feed to eplhb
         concat = th.cat([last_embed, q_out], dim=-1)
-        eplhb_out = self.eplhb(concat).squeeze(-1)
+        # Normalize input to prevent scale issues
+        concat_norm = self.input_norm(concat)
+        eplhb_out = self.eplhb(concat_norm).squeeze(-1)
+        # Clamp output to prevent extreme values
+        eplhb_out = th.clamp(eplhb_out, min=-10.0, max=10.0)
 
         return q_out, h_n, eplhb_out
 
@@ -362,7 +378,7 @@ class DQNPolicy(BasePolicy):
         self.activation_fn = activation_fn
         self.with_RNN_layer = with_RNN_layer
         self.with_EPLHb_layer = with_EPLHb_layer
-
+        
         self.net_args = {
             "observation_space": self.observation_space,
             "action_space": self.action_space,
@@ -370,6 +386,9 @@ class DQNPolicy(BasePolicy):
             "activation_fn": self.activation_fn,
             "normalize_images": normalize_images,
         }
+
+        # Extract initial_eplhb_coeff from features_extractor_kwargs if provided
+        self.initial_eplhb_coeff = features_extractor_kwargs.get('initial_eplhb_coeff', 0.01) if features_extractor_kwargs else 0.01
 
         self._build(lr_schedule)
 
@@ -422,9 +441,14 @@ class DQNPolicy(BasePolicy):
     def make_q_net(self) -> QNetwork:
         # Make sure we always have separate networks for features extractors etc
         net_args = self._update_features_extractor(self.net_args, features_extractor=None)
-        if self.with_EPLHb_layer: net_cls = EPLHbNetwork
-        elif self.with_RNN_layer: net_cls = RNNQNetwork
-        else: net_cls = QNetwork
+        if self.with_EPLHb_layer: 
+            net_cls = EPLHbNetwork
+            # Pass initial_eplhb_coeff to EPLHbNetwork
+            net_args['initial_eplhb_coeff'] = self.initial_eplhb_coeff
+        elif self.with_RNN_layer: 
+            net_cls = RNNQNetwork
+        else: 
+            net_cls = QNetwork
         return net_cls(**net_args).to(self.device)
 
     def forward(self, obs: th.Tensor, deterministic: bool = True) -> th.Tensor:

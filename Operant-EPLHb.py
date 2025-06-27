@@ -50,8 +50,9 @@ session_params = {
 # PID-DQN parameters
 pid_params = {
     "learning_rate": 1e-3,
-    "eplhb_lr": 1e-5,
-    "coeff_lr": 1e-10,
+    "eplhb_lr": 1e-2,
+    "coeff_lr": 1e-3,
+    "initial_eplhb_coeff": 0.01,
 
     "replay_memory_size": session_params["buffer_size"],
     "batch_size": session_params["batch_size"],
@@ -112,13 +113,16 @@ gain_adapter = SingleGainAdapter(
 policy_kwargs = dict(
     net_arch=[pid_params["inner_size"], pid_params["inner_size"]],
     optimizer_class=optim.Adam,
-    with_RNN_layer=True
+    with_RNN_layer=True,
+    features_extractor_kwargs=dict(
+        initial_eplhb_coeff=pid_params["initial_eplhb_coeff"],  # <-- Set your desired initial value here
+    ),
 )
 
 # EPLHb-specific optimizer kwargs
 optimizer_kwargs = dict(
-    eplhb_lr=1e-3,   # your custom learning rate for EPLHb layer
-    coeff_lr=5e-4,   # your custom learning rate for eplhb_coeff
+    eplhb_lr=pid_params["eplhb_lr"],   # your custom learning rate for EPLHb layer
+    coeff_lr=pid_params["coeff_lr"],   # your custom learning rate for eplhb_coeff
     # ... any other optimizer kwargs ...
 )
 
