@@ -517,19 +517,14 @@ def plot_figure(recorder,
 
     # bottom right: amplitude of TD error during cue
     ax5 = fig.add_subplot(gs[2, 1])
-<<<<<<< Updated upstream
     ax5.plot(output_dict['trial_axis'], output_dict['trial_TD_amplitude'], color='tab:blue', label='TD Amplitude', linewidth=0.7)
     ax5.plot(output_dict['trial_axis'], output_dict['trial_pid_TD_amplitude'], color='tab:orange', label='PID TD Amplitude', linewidth=0.7)
-    ax5.set_title("Amplitude of TD error during cue")
-=======
-    ax5.plot(output_dict['trial_axis'], output_dict['trial_TD_amplitude'], color='tab:orange')
     if hasattr(recorder, 'eplhb_out'):
         ax5.plot(output_dict['trial_axis'], output_dict['cue_EPLHb_output'], color='tab:green')
         ax5.set_title("TD error & EPLHb output during cue")
     else:
         ax5.set_title("TD error during cue")
     ax5.legend(loc='upper left', fontsize=10, frameon=False)
->>>>>>> Stashed changes
     ax5.set_xlabel("Trial")
     ax5.set_ylabel("Amplitude")
     ax5.legend(loc='upper left', fontsize=10, frameon=False)
