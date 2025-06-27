@@ -517,24 +517,22 @@ def plot_figure(recorder,
 
     # bottom right: amplitude of TD error during cue
     ax5 = fig.add_subplot(gs[2, 1])
+<<<<<<< Updated upstream
     ax5.plot(output_dict['trial_axis'], output_dict['trial_TD_amplitude'], color='tab:blue', label='TD Amplitude', linewidth=0.7)
     ax5.plot(output_dict['trial_axis'], output_dict['trial_pid_TD_amplitude'], color='tab:orange', label='PID TD Amplitude', linewidth=0.7)
     ax5.set_title("Amplitude of TD error during cue")
+=======
+    ax5.plot(output_dict['trial_axis'], output_dict['trial_TD_amplitude'], color='tab:orange')
+    if hasattr(recorder, 'eplhb_out'):
+        ax5.plot(output_dict['trial_axis'], output_dict['cue_EPLHb_output'], color='tab:green')
+        ax5.set_title("TD error & EPLHb output during cue")
+    else:
+        ax5.set_title("TD error during cue")
+    ax5.legend(loc='upper left', fontsize=10, frameon=False)
+>>>>>>> Stashed changes
     ax5.set_xlabel("Trial")
     ax5.set_ylabel("Amplitude")
     ax5.legend(loc='upper left', fontsize=10, frameon=False)
-
-    # bottom left: raw cue_error
-    # ax4 = fig.add_subplot(gs[2, 0])
-    # plotSEM(t_axis, tds_TD, omissions = None, label="TD Only", color='tab:blue', ax=ax4, alpha=0.3)
-    # plotSEM(t_axis, tds_PD, omissions = None, label="With PD", color='tab:red', ax=ax4, alpha=0.3)
-    # ymin, ymax = ax4.get_ylim()
-    # ax4.fill_betweenx([ymin, ymax], 0, 0.5, color='tab:orange', alpha=0.2, edgecolor='None')
-    # ax4.set_ylim(ymin, ymax)
-    # ax4.set_title("TD vs PD TD Errors")
-    # ax4.set_xlabel("Time (s)")
-    # ax4.set_ylabel("TD Error")
-    # ax4.legend(loc='upper left', fontsize=10, frameon=False)
 
     # bottom middle: FFT
     # ax5 = fig.add_subplot(gs[2, 1])
