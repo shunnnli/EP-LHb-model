@@ -388,7 +388,10 @@ class DQNPolicy(BasePolicy):
         }
 
         # Extract initial_eplhb_coeff from features_extractor_kwargs if provided
-        self.initial_eplhb_coeff = features_extractor_kwargs.get('initial_eplhb_coeff', 0.01) if features_extractor_kwargs else 0.01
+        if features_extractor_kwargs and 'initial_eplhb_coeff' in features_extractor_kwargs:
+            self.initial_eplhb_coeff = features_extractor_kwargs.pop('initial_eplhb_coeff')
+        else:
+            self.initial_eplhb_coeff = 0.01
 
         self._build(lr_schedule)
 

@@ -494,7 +494,9 @@ def plot_figure(recorder,
     # middle‐middle: average TD error + simulated DA signal
     ax3 = fig.add_subplot(gs[1, 1])
     plotSEM(output_dict['t_axis'], output_dict['cue_error'], omissions=None, label="TD Error", color='tab:blue', ax=ax3, alpha=0.1)
-    plotSEM(output_dict['t_axis'], output_dict['cue_pid_error'], omissions=None, label="PID TD Error", color='tab:orange', ax=ax3, alpha=0.1)
+    # Plot cue_pid_error if it exists in output_dict
+    if 'cue_pid_error' in output_dict:
+        plotSEM(output_dict['t_axis'], output_dict['cue_pid_error'], omissions=None, label="PID TD Error", color='tab:orange', ax=ax3, alpha=0.1)
 
     # plotSEM(t_axis, DAs, label="DA Signal", color='tab:green', ax=ax3, alpha=0.2)
     # shade cue
