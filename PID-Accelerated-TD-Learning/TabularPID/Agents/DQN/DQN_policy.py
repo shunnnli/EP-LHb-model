@@ -210,10 +210,10 @@ class EPLHbNetwork(QNetwork):
         self.eplhb_hidden_dim = eplhb_hidden_dim
         
         # Allow user to specify initial eplhb_coeff value via policy_kwargs
-        # Use a transformation to ensure eplhb_coeff is always non-positive
+        # Use a transformation to ensure eplhb_coeff is always non-positive and bounded
         self.eplhb_coeff_raw = nn.Parameter(th.tensor(initial_eplhb_coeff))
-        # Transform to ensure non-positive values: -exp(x) or -sigmoid(x)
-        # eplhb_coeff is now a property that returns -th.exp(self.eplhb_coeff_raw)
+        # Transform to ensure non-positive values: -sigmoid(x) bounds between [-1, 0)
+        # eplhb_coeff is now a property that returns -th.sigmoid(self.eplhb_coeff_raw)
 
         # override the pure-MLP q_net with an RNN → MLP
         self.rnn = nn.RNN(
@@ -315,15 +315,9 @@ class EPLHbNetwork(QNetwork):
 
     @property
     def eplhb_coeff(self):
-        """Return the transformed eplhb_coeff, ensuring it's always non-positive."""
-        return -th.exp(self.eplhb_coeff_raw)
-
-
-
-
-
-
-
+        """Return the transformed eplhb_coeff, ensuring it's always non-positive and bounded."""
+        # Use sigmoid to bound between -1 and 0: -sigmoid(x) gives range [-1, 0)
+        return -th.sigmoid(self.eplhb_coeff_raw)
 
 
 
