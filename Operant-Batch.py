@@ -12,7 +12,7 @@ if repo_path not in sys.path:
     sys.path.insert(0, repo_path)
 # from TabularPID.AgentBuilders.DQNBuilder import build_PID_DQN # not working for me
 from stable_baselines3.common.logger import configure
-from stable_baselines3.common.buffers import ReplayBuffer
+from stable_baselines3.common.buffers import OnlineReplayBuffer
 from TabularPID.Agents.DQN.DQN import PID_DQN
 from TabularPID.Agents.DQN.DQN_gain_adapter import NoGainAdapter, SingleGainAdapter, DiagonalGainAdapter, NetworkGainAdapter
 
@@ -20,95 +20,6 @@ from OperantGym import OperantLearning
 from plotfunctions import plot_figure
 from recorder import SessionRecorder
 from types import SimpleNamespace
-
-class OnlineReplayBuffer(ReplayBuffer):
-    def __init__(
-        self,
-        buffer_size: int,
-        observation_space,
-        action_space,
-        device: torch.device,
-        n_envs: int = 1,
-        optimize_memory_usage: bool = False,
-        handle_timeout_termination: bool = True,
-    ):
-        super().__init__(
-            buffer_size,
-            observation_space,
-            action_space,
-            device=device,
-            n_envs=n_envs,
-            optimize_memory_usage=optimize_memory_usage,
-            handle_timeout_termination=handle_timeout_termination,
-        )
-        # parallel arrays for d & z
-        self.ds = np.zeros((buffer_size, 1), dtype=np.float32)
-        self.zs = np.zeros((buffer_size, 1), dtype=np.float32)
-
-    def add(
-        self,
-        obs: np.ndarray,
-        next_obs: np.ndarray,
-        action: np.ndarray,
-        reward: np.ndarray,
-        done: bool,
-        infos: list,
-        d: np.ndarray,
-        z: np.ndarray,
-    ) -> None:
-        # write obs/next_obs/etc.
-        super().add(obs, next_obs, action, reward, done, infos)
-        idx = (self.pos - 1) % self.buffer_size
-        self.ds[idx, 0] = float(np.asarray(d).flatten()[0])
-        self.zs[idx, 0] = float(np.asarray(z).flatten()[0])
-
-    def sample(
-        self,
-        batch_size: int,
-        env=None,
-        seq_len: int = None
-    ):
-        if seq_len is None:
-            # Generate indices manually
-            idxs = np.random.randint(0, self.size(), size=batch_size)
-            base_batch = self._get_samples(idxs, env=env)
-        else:
-            # truncated BPTT style: take the first `seq_len` of your buffer
-            n    = self.size()
-            L    = min(seq_len, n)
-            idxs = np.arange(L, dtype=int)
-            base_batch = self._get_samples(idxs, env=env)
-
-        # Slice d & z using the sampled indices
-        batch_ds = torch.as_tensor(self.ds[idxs], device=self.device)
-        batch_zs = torch.as_tensor(self.zs[idxs], device=self.device)
-
-        # Turn the base namedtuple into a dict
-        data = { field: getattr(base_batch, field) for field in base_batch._fields }
-        # Inject your custom tensors
-        data['ds'] = batch_ds
-        data['zs'] = batch_zs
-
-        data['indices'] = idxs
-
-        # If using sequence mode, reshape accordingly
-        if seq_len is not None:
-            for field in ('observations','next_observations'):
-                arr = data[field]
-                if arr.ndim == 2:
-                    data[field] = arr[np.newaxis, ...]
-            for field in ('actions','rewards','dones','ds','zs'):
-                arr = data[field]
-                if arr.ndim == 1:
-                    data[field] = arr[np.newaxis, :]
-                elif arr.ndim == 2:
-                    data[field] = arr[np.newaxis, ...]
-        return SimpleNamespace(**data)
-    def update(self, indices, zs=None, ds=None):
-        if zs is not None:
-            self.zs[indices] = zs.cpu().numpy()
-        if ds is not None:
-            self.ds[indices] = ds.cpu().numpy()
 
 # Base hyperparameters from your original script
 # session_params defined here
@@ -193,7 +104,7 @@ def train_once(session_params, pid_params):
         action_cost=session_params["action_cost"],
         enl_penalty=session_params["enl_penalty"],
         detection_delay=1,
-        printing=False
+        print=False
     )
 
     gain_adapter = SingleGainAdapter(
