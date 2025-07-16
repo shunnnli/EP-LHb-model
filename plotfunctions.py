@@ -344,11 +344,17 @@ def load_recorder_data(recorder,
 
     # Get EPLHb output
     if hasattr(recorder, 'eplhb_out'):
+        animal_sign_index = [np.mean(sign_idx) for sign_idx in recorder.eplhb_sign_index[1:]]
+        cue_animal_sign_index = get_traces(animal_sign_index, tones, pre_steps, post_steps)
+        trial_animal_sign_index = get_amplitude(cue_animal_sign_index, window=(pre_steps, pre_steps + cue_steps))
+
         eplhb_out = np.array(recorder.eplhb_out)[1:]
         eplhb_coeff = np.array(recorder.eplhb_coeff)[1:]
         cue_EPLHb_output = get_traces(eplhb_out, tones, pre_steps, post_steps)
         cue_EPLHb_coeff = get_traces(eplhb_coeff, tones, pre_steps, post_steps)
     else:
+        animal_sign_index = None
+        trial_animal_sign_index = None
         eplhb_out = None
         eplhb_coeff = None
         cue_EPLHb_output = None
@@ -409,6 +415,8 @@ def load_recorder_data(recorder,
         't_axis': t_axis,
         'trial_axis': trial_axis,
         'DAs': DAs,
+        'animal_sign_index': animal_sign_index,
+        'trial_animal_sign_index': trial_animal_sign_index,
         'eplhb_out': eplhb_out,
         'eplhb_coeff': eplhb_coeff,
         'cue_EPLHb_output': cue_EPLHb_output,
@@ -519,11 +527,18 @@ def plot_figure(recorder,
 
     # bottom right: amplitude of TD error during cue
     ax5 = fig.add_subplot(gs[2, 1])
-    ax5.plot(output_dict['trial_axis'], output_dict['trial_TD_amplitude'], color='tab:blue', label='TD Amplitude', linewidth=0.7)
     ax5.plot(output_dict['trial_axis'], output_dict['trial_pid_TD_amplitude'], color='tab:orange', label='PID TD Amplitude', linewidth=0.7)
-    if hasattr(recorder, 'eplhb_out'):
-        ax5.plot(output_dict['trial_axis'], output_dict['cue_EPLHb_output'], color='tab:green')
-        ax5.set_title("TD error & EPLHb output during cue")
+    ax5.plot(output_dict['trial_axis'], output_dict['trial_TD_amplitude'], color='tab:blue', label='TD Amplitude', linewidth=1)
+    if hasattr(recorder, 'eplhb_sign_index'):
+        ax5b = ax5.twinx()
+        ax5b.plot(output_dict['trial_axis'], output_dict['trial_animal_sign_index'], color='tab:green', label='Animal Sign Index')
+        ax5b.set_ylabel("Animal Sign Index", color='tab:green')
+        ax5b.tick_params(axis='y', labelcolor='tab:green')
+        # Use scientific notation for tick values to avoid overlap
+        from matplotlib.ticker import ScalarFormatter
+        ax5b.yaxis.set_major_formatter(ScalarFormatter(useMathText=True))
+        ax5b.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
+        ax5.set_title("TD error during cue & animal sign index")
     else:
         ax5.set_title("TD error during cue")
     ax5.legend(loc='upper left', fontsize=10, frameon=False)

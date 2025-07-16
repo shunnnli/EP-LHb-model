@@ -233,10 +233,13 @@ class EPLHbNetwork(QNetwork):
 
         # --- NEW: EPLHb MLP ---
         # input is [rnn_hidden + Q-MLP pre-output], map to a scalar
+        class MeanLayer(nn.Module):
+            def forward(self, x):
+                return x.mean(dim=1, keepdim=True)
         self.eplhb = nn.Sequential(
             nn.Linear(rnn_hidden_size + self.action_space.n, self.eplhb_hidden_dim),
             nn.ReLU(),
-            nn.Linear(self.eplhb_hidden_dim, 1)
+            MeanLayer()
         )
         
         # Initialize EPLHb weights with small values to prevent large outputs
@@ -317,7 +320,9 @@ class EPLHbNetwork(QNetwork):
     def eplhb_coeff(self):
         """Return the transformed eplhb_coeff, ensuring it's always non-positive and bounded."""
         # Use sigmoid to bound between -1 and 0: -sigmoid(x) gives range [-1, 0)
-        return -th.sigmoid(self.eplhb_coeff_raw)
+        if self.eplhb_coeff_raw > 0: final_eplhb_coeff = -self.eplhb_coeff_raw
+        else: final_eplhb_coeff = self.eplhb_coeff_raw
+        return final_eplhb_coeff
 
 
 

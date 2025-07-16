@@ -51,8 +51,8 @@ session_params = {
 pid_params = {
     "learning_rate": 1e-3,
     "eplhb_lr": 1e-2,
-    "coeff_lr": 1e-3,
-    "initial_eplhb_coeff": 0.01,
+    "coeff_lr": 0,
+    "initial_eplhb_coeff": 1e-1,
 
     "replay_memory_size": session_params["buffer_size"],
     "batch_size": session_params["batch_size"],
@@ -69,7 +69,7 @@ pid_params = {
     "dump_buffer": False,
     "is_double": False,
     "policy_evaluation": False,
-    "seed": 1232,
+    "seed": 1222,
 
     "kp": 1.0,
     "ki": 0.0,
@@ -289,7 +289,7 @@ while trial_idx < num_trials:
                                 )
         
         # record every timestep in the session trace
-        recorder.record_env_step(trial_idx, action, reward, next_obs, info, model=model)
+        recorder.record_env_step(trial_idx, action, reward, next_obs, info, model=model, sign_index=True)
         # update obs, z_prev
         obs, z_prev = next_obs, z_update
 
