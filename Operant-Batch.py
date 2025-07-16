@@ -19,12 +19,13 @@ from TabularPID.Agents.DQN.DQN_gain_adapter import NoGainAdapter, SingleGainAdap
 from OperantGym import OperantLearning
 from plotfunctions import plot_figure
 from recorder import SessionRecorder
+from types import SimpleNamespace
 
 # Base hyperparameters from your original script
 # session_params defined here
 base_session_params = {
     "pairing":          'reward',
-    "num_trials":       200,
+    "num_trials":       400,
     "pre_steps":        10,
     "post_steps":       40,
     "enl_duration":     (2.0, 4.0),
@@ -41,6 +42,7 @@ base_session_params = {
     "batch_size":       1,
     "buffer_size":      1,
     "dt":               0.1,
+    "continual_learning": True,
 }
 
 # pid_params defined here
@@ -177,6 +179,7 @@ def train_once(session_params, pid_params):
                 desc=f"Trials (kd={pid_params['kd']}, omit={session_params['omission_prob']}, seed={pid_params['seed']})",
                 unit="trial")
     retrain = False
+    continual_learning = session_params["continual_learning"]
 
     obs, _ = env.reset()
     trial_idx = 0
@@ -191,6 +194,9 @@ def train_once(session_params, pid_params):
         done = False
         trial_timesteps = 0
         z_prev = 0.0
+
+        if continual_learning and trial_idx > 100:
+            env.omission_prob = np.ceil((trial_idx-100)/33) * 0.1
 
         # run one trial
         while not done:
@@ -281,13 +287,11 @@ def train_once(session_params, pid_params):
 # ----------------------------------------------------------------
 if __name__ == "__main__":
     # Define sweep grid
-    kd_values        = [0.6, 0.7, 0.8, 0.9, 1]  # PID derivative gain values
-    omission_probs   = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
-    repeats          = 10  # Number of repeats for each combination
+    kd_values        = [0, 0.3]  # PID derivative gain values
+    omission_probs   = [0]
+    repeats          = 5  # Number of repeats for each combination
 
-    # kd_values        = [0]
-    # omission_probs   = [0.1]
-    # repeats          = 1  # Number of repeats for each combination
+
 
     # Save results settings
     batch_name = 'kd_omission_sweep'
