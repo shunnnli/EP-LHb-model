@@ -450,7 +450,7 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             final_loss = (
                  base_loss
                  + eplhb_coeff * eplhb_last.mean()
-                 + (noise_seq * td_error_seq).mean()
+                #  + (noise_seq * td_error_seq).mean()
             )
 
             optim.zero_grad()
