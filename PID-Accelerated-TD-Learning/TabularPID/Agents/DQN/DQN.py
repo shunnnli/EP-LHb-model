@@ -1008,9 +1008,6 @@ class PID_DQN(OffPolicyAlgorithm):
             else:
                 eplhb_coeff = th.tensor(eplhb_coeff, dtype=th.float32)
 
-            # Ensure eplhb_coeff is non-positive (it should already be due to transformation)
-            eplhb_coeff = th.clamp(eplhb_coeff, max=0.0)
-
             final_loss = (
                  base_loss
                  + eplhb_coeff * eplhb_last.mean()
