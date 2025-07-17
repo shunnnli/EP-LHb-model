@@ -280,16 +280,20 @@ class EPLHb_DQN(OffPolicyAlgorithm):
                 self.kp = kp
                 self.ki = ki
                 self.kd = kd
-
                 target = target_current_q_values + kp * self.p_update + ki * self.i_update + kd * self.d_update
-
-            # if np.random.rand() < 0.005:
-            #     breakpoint()
 
             # Forward pass to get Q and EPLHb heads
             q_pred, _, eplhb_out = self.q_net.forward_full(replay_data.observations)
             # pick Q for the taken actions
             q_taken = th.gather(q_pred, dim=1, index=replay_data.actions.long()).squeeze(-1)
+
+            # pull out your learnable coeff
+            eplhb_coeff = self.policy.q_net.eplhb_coeff
+            if isinstance(eplhb_coeff, th.nn.Parameter):
+                eplhb_coeff = eplhb_coeff.data.float()
+            else:
+                eplhb_coeff = th.tensor(eplhb_coeff, dtype=th.float32)
+            target += eplhb_coeff * eplhb_out
 
             # compute TD-error and base loss
             td_error = q_taken - target.squeeze(-1)
@@ -298,21 +302,9 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             # sample a little noise term
             noise = th.randn_like(td_error)
 
-            # pull out your learnable coeff
-            eplhb_coeff = self.policy.q_net.eplhb_coeff
-            if isinstance(eplhb_coeff, th.nn.Parameter):
-                eplhb_coeff = eplhb_coeff.data.float()
-            else:
-                eplhb_coeff = th.tensor(eplhb_coeff, dtype=th.float32)
-            
-            # Ensure eplhb_coeff is non-positive (it should already be due to transformation)
-            eplhb_coeff = th.clamp(eplhb_coeff, max=0.0)
-
             # final joint loss
             final_loss = (
-                base_loss
-                + eplhb_coeff * eplhb_out.mean()
-                + (noise * td_error).mean()
+                base_loss + (noise * td_error).mean()
             )
             losses.append(final_loss.item())
 
@@ -336,6 +328,7 @@ class EPLHb_DQN(OffPolicyAlgorithm):
         self.logger.record("rollout/BRs", th.mean(self.BRs).item())
         self.logger.record("rollout/BRs_L2_norm", th.norm(self.BRs).item() / np.sqrt(self.BRs.shape[0]))
         self.logger.dump(step=self.num_timesteps)
+
 
     def _train_recurrent(self, gradient_steps: int, batch_size: int, seq_len: int):
         losses = []
@@ -390,7 +383,6 @@ class EPLHb_DQN(OffPolicyAlgorithm):
                 # store eplhb output for later
                 eplhb_seq.append(eplhb_t.unsqueeze(1)) # [B, 1]
 
-
                 with th.no_grad():
                     # 1‐step Bellman target
                     q_tp1 = tgt(next_obs_seq[:, t, :]).max(dim=1)[0]
@@ -408,7 +400,9 @@ class EPLHb_DQN(OffPolicyAlgorithm):
                     i_up  = z_new
                     d_up  = q_at - d_seq[:, t]            # [B]
 
-                    target_t = q_at + kp * p_up + ki * i_up + kd * d_up  # [B]
+                    # Add eplhb_t (EPLHb output) into the target
+                    eplhb_coeff = net.eplhb_coeff
+                    target_t = q_at + kp * p_up + ki * i_up + kd * d_up + eplhb_coeff * eplhb_t  # [B]
 
                 q_pred_seq.append(q_at.unsqueeze(1))     # list of [B,1]
                 target_seq.append(target_t.unsqueeze(1)) # list of [B,1]
@@ -430,26 +424,22 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             target = target.view_as(q_pred)   # reshape target to exactly q_pred's shape
 
             # stack all the eplhb outputs and grab the last time‐step
-            eplhb_seq = th.cat(eplhb_seq, dim=1)  # [B, L]
-            eplhb_last = eplhb_seq[:, -1]              # [B]
+            # eplhb_seq = th.cat(eplhb_seq, dim=1)  # [B, L]
+            # eplhb_last = eplhb_seq[:, -1]              # [B]
             
             # 6) one-shot loss over full sequence
             # q_pred_seq and target_seq are [B, L], so:
             td_error_seq = q_pred - target  # shape [B, L]
             base_loss = F.smooth_l1_loss(q_pred, target) # [B, L]
             noise_seq = th.randn_like(td_error_seq)
-            eplhb_coeff = self.policy.q_net.eplhb_coeff
-            if isinstance(eplhb_coeff, th.nn.Parameter):
-                eplhb_coeff = eplhb_coeff.data.float()
-            else:
-                eplhb_coeff = th.tensor(eplhb_coeff, dtype=th.float32)
-
-            # Ensure eplhb_coeff is non-positive (it should already be due to transformation)
-            eplhb_coeff = th.clamp(eplhb_coeff, max=0.0)
+            # eplhb_coeff = self.policy.q_net.eplhb_coeff
+            # if isinstance(eplhb_coeff, th.nn.Parameter):
+            #     eplhb_coeff = eplhb_coeff.data.float()
+            # else:
+            #     eplhb_coeff = th.tensor(eplhb_coeff, dtype=th.float32)
 
             final_loss = (
-                 base_loss
-                 + eplhb_coeff * eplhb_last.mean()
+                 base_loss 
                 #  + (noise_seq * td_error_seq).mean()
             )
 
@@ -471,8 +461,6 @@ class EPLHb_DQN(OffPolicyAlgorithm):
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/loss",      np.mean(losses))
         self.logger.dump(step=self.num_timesteps)
-
-
 
 
     def compute_next_q_values(self, replay_data, batch_size):
@@ -844,16 +832,20 @@ class PID_DQN(OffPolicyAlgorithm):
                 self.kp = kp
                 self.ki = ki
                 self.kd = kd
-
                 target = target_current_q_values + kp * self.p_update + ki * self.i_update + kd * self.d_update
-
-            # if np.random.rand() < 0.005:
-            #     breakpoint()
 
             # Forward pass to get Q and EPLHb heads
             q_pred, _, eplhb_out = self.q_net.forward_full(replay_data.observations)
             # pick Q for the taken actions
             q_taken = th.gather(q_pred, dim=1, index=replay_data.actions.long()).squeeze(-1)
+
+            # pull out your learnable coeff
+            eplhb_coeff = self.policy.q_net.eplhb_coeff
+            if isinstance(eplhb_coeff, th.nn.Parameter):
+                eplhb_coeff = eplhb_coeff.data.float()
+            else:
+                eplhb_coeff = th.tensor(eplhb_coeff, dtype=th.float32)
+            target += eplhb_coeff * eplhb_out
 
             # compute TD-error and base loss
             td_error = q_taken - target.squeeze(-1)
@@ -862,21 +854,9 @@ class PID_DQN(OffPolicyAlgorithm):
             # sample a little noise term
             noise = th.randn_like(td_error)
 
-            # pull out your learnable coeff
-            eplhb_coeff = self.policy.q_net.eplhb_coeff
-            if isinstance(eplhb_coeff, th.nn.Parameter):
-                eplhb_coeff = eplhb_coeff.data.float()
-            else:
-                eplhb_coeff = th.tensor(eplhb_coeff, dtype=th.float32)
-            
-            # Ensure eplhb_coeff is non-positive (it should already be due to transformation)
-            eplhb_coeff = th.clamp(eplhb_coeff, max=0.0)
-
             # final joint loss
             final_loss = (
-                base_loss
-                + eplhb_coeff * eplhb_out.mean()
-                + (noise * td_error).mean()
+                base_loss + (noise * td_error).mean()
             )
             losses.append(final_loss.item())
 
@@ -885,12 +865,6 @@ class PID_DQN(OffPolicyAlgorithm):
             final_loss.backward()
             th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
             self.policy.optimizer.step()
-
-            # Additional gradient clipping for EPLHb parameters
-            if hasattr(self.policy.q_net, 'eplhb'):
-                th.nn.utils.clip_grad_norm_(self.policy.q_net.eplhb.parameters(), 1.0)
-                if hasattr(self.policy.q_net, 'eplhb_coeff_raw'):
-                    th.nn.utils.clip_grad_norm_([self.policy.q_net.eplhb_coeff_raw], 0.1)
 
         # Increase update counter
         self._n_updates += gradient_steps
@@ -943,16 +917,12 @@ class PID_DQN(OffPolicyAlgorithm):
             # 5) unroll L steps, compute Q‐predictions & PID targets
             q_pred_seq = []
             target_seq = []
-            eplhb_seq  = []
 
             for t in range(L):
                 # current Q
-                q_t, _, eplhb_t = net.forward_full(obs_seq[:, t, :])
+                q_t = net.forward(obs_seq[:, t, :])
                 a_t  = act_seq[:, t].unsqueeze(1)        # [B, 1]
                 q_at = q_t.gather(1, a_t).squeeze(1)     # [B]
-
-                # store eplhb output for later
-                eplhb_seq.append(eplhb_t.unsqueeze(1)) # [B, 1]
 
 
                 with th.no_grad():
@@ -992,39 +962,21 @@ class PID_DQN(OffPolicyAlgorithm):
             q_pred = th.cat(q_pred_seq, dim=1)         # [B, L]
             target = th.cat(target_seq, dim=1)         # [B, L]
             target = target.view_as(q_pred)   # reshape target to exactly q_pred's shape
-
-            # stack all the eplhb outputs and grab the last time‐step
-            eplhb_seq = th.cat(eplhb_seq, dim=1)  # [B, L]
-            eplhb_last = eplhb_seq[:, -1]              # [B]
             
             # 6) one-shot loss over full sequence
             # q_pred_seq and target_seq are [B, L], so:
             td_error_seq = q_pred - target  # shape [B, L]
             base_loss = F.smooth_l1_loss(q_pred, target) # [B, L]
             noise_seq = th.randn_like(td_error_seq)
-            eplhb_coeff = self.policy.q_net.eplhb_coeff
-            if isinstance(eplhb_coeff, th.nn.Parameter):
-                eplhb_coeff = eplhb_coeff.data.float()
-            else:
-                eplhb_coeff = th.tensor(eplhb_coeff, dtype=th.float32)
 
             final_loss = (
-                 base_loss
-                 + eplhb_coeff * eplhb_last.mean()
-                 + (noise_seq * td_error_seq).mean()
+                 base_loss + (noise_seq * td_error_seq).mean()
             )
 
             optim.zero_grad()
             final_loss.backward()
             th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
             optim.step()
-
-            # Additional gradient clipping for EPLHb parameters
-            if hasattr(self.policy.q_net, 'eplhb'):
-                th.nn.utils.clip_grad_norm_(self.policy.q_net.eplhb.parameters(), 1.0)
-                if hasattr(self.policy.q_net, 'eplhb_coeff_raw'):
-                    th.nn.utils.clip_grad_norm_([self.policy.q_net.eplhb_coeff_raw], 0.1)
-
             losses.append(final_loss.item())
 
         # 7) logging (same as non‐recurrent)

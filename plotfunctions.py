@@ -352,6 +352,12 @@ def load_recorder_data(recorder,
         eplhb_coeff = np.array(recorder.eplhb_coeff)[1:]
         cue_EPLHb_output = get_traces(eplhb_out, tones, pre_steps, post_steps)
         cue_EPLHb_coeff = get_traces(eplhb_coeff, tones, pre_steps, post_steps)
+
+        # (unfinished) record eplhb_weight if record_eplhb_weight == True
+        # 1. take mean of the weight
+        # print(recorder.eplhb_weights)
+        # print(mean weights)
+        # print(animal_sign_index)
     else:
         animal_sign_index = None
         trial_animal_sign_index = None

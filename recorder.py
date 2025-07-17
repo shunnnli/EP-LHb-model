@@ -87,7 +87,8 @@ class SessionRecorder:
         if not hasattr(self, 'eplhb_coeff'):
             self.eplhb_coeff = []
 
-    def record_env_step(self, trial_idx, action, reward, new_obs, info, model=None, sign_index=True):
+    def record_env_step(self, trial_idx, action, reward, new_obs, info, model=None,
+                        record_sign_index=True, record_eplhb_weight=False):
         """Call right after env.step(...)"""
         import numpy as np
         import torch
@@ -195,13 +196,12 @@ class SessionRecorder:
                 if hasattr(q_net, 'eplhb'):
                     # Detach and store the weights of the first and second Linear layers in eplhb_weights and lhbda_weights, respectively
                     eplhb_weights = q_net.eplhb[0].weight.detach().cpu().numpy().copy() if hasattr(q_net.eplhb[0], 'weight') else None
-                    if sign_index:
+                    if record_sign_index:
                         # calculate sign index for each LHb neuron
                         sign_index = calculate_sign_index(eplhb_weights)
                         self.eplhb_sign_index.append(sign_index)
-                    else:
+                    if record_eplhb_weight:
                         self.eplhb_weights.append(eplhb_weights) # (32,130)
-                    
                 else:
                     self.eplhb_weights.append(None)
 
@@ -337,7 +337,6 @@ class SessionRecorderCallback(BaseCallback):
         self.kd.append(kd)
 
         return True
-
 
 class TrialRecorderCallback(BaseCallback):
     """

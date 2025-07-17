@@ -312,17 +312,14 @@ class EPLHbNetwork(QNetwork):
         concat_norm = self.input_norm(concat)
         eplhb_out = self.eplhb(concat_norm).squeeze(-1)
         # Clamp output to prevent extreme values
-        eplhb_out = th.clamp(eplhb_out, min=-10.0, max=10.0)
+        # eplhb_out = th.clamp(eplhb_out, min=-10.0, max=10.0)
 
         return q_out, h_n, eplhb_out
 
     @property
     def eplhb_coeff(self):
         """Return the transformed eplhb_coeff, ensuring it's always non-positive and bounded."""
-        # Use sigmoid to bound between -1 and 0: -sigmoid(x) gives range [-1, 0)
-        if self.eplhb_coeff_raw > 0: final_eplhb_coeff = -self.eplhb_coeff_raw
-        else: final_eplhb_coeff = self.eplhb_coeff_raw
-        return final_eplhb_coeff
+        return -abs(self.eplhb_coeff_raw)
 
 
 
