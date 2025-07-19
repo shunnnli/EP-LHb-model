@@ -288,12 +288,8 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             q_taken = th.gather(q_pred, dim=1, index=replay_data.actions.long()).squeeze(-1)
 
             # pull out your learnable coeff
-            eplhb_coeff = self.policy.q_net.eplhb_coeff
-            if isinstance(eplhb_coeff, th.nn.Parameter):
-                eplhb_coeff = eplhb_coeff.data.float()
-            else:
-                eplhb_coeff = th.tensor(eplhb_coeff, dtype=th.float32)
-            target += eplhb_coeff * eplhb_out
+            # Use eplhb_coeff property directly to keep it in the computation graph
+            target = target + self.policy.q_net.eplhb_coeff * eplhb_out
 
             # compute TD-error and base loss
             td_error = q_taken - target.squeeze(-1)
@@ -400,9 +396,12 @@ class EPLHb_DQN(OffPolicyAlgorithm):
                     i_up  = z_new
                     d_up  = q_at - d_seq[:, t]            # [B]
 
-                    # Add eplhb_t (EPLHb output) into the target
-                    eplhb_coeff = net.eplhb_coeff
-                    target_t = q_at + kp * p_up + ki * i_up + kd * d_up + eplhb_coeff * eplhb_t  # [B]
+                    # Base target without EPLHb (computed outside no_grad)
+                    base_target_t = q_at + kp * p_up + ki * i_up + kd * d_up  # [B]
+
+                # Add EPLHb contribution to target (this allows gradients to flow)
+                eplhb_coeff = net.eplhb_coeff
+                target_t = base_target_t + eplhb_coeff * eplhb_t  # [B]
 
                 q_pred_seq.append(q_at.unsqueeze(1))     # list of [B,1]
                 target_seq.append(target_t.unsqueeze(1)) # list of [B,1]
@@ -422,21 +421,12 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             q_pred = th.cat(q_pred_seq, dim=1)         # [B, L]
             target = th.cat(target_seq, dim=1)         # [B, L]
             target = target.view_as(q_pred)   # reshape target to exactly q_pred's shape
-
-            # stack all the eplhb outputs and grab the last time‐step
-            # eplhb_seq = th.cat(eplhb_seq, dim=1)  # [B, L]
-            # eplhb_last = eplhb_seq[:, -1]              # [B]
             
             # 6) one-shot loss over full sequence
             # q_pred_seq and target_seq are [B, L], so:
             td_error_seq = q_pred - target  # shape [B, L]
             base_loss = F.smooth_l1_loss(q_pred, target) # [B, L]
             noise_seq = th.randn_like(td_error_seq)
-            # eplhb_coeff = self.policy.q_net.eplhb_coeff
-            # if isinstance(eplhb_coeff, th.nn.Parameter):
-            #     eplhb_coeff = eplhb_coeff.data.float()
-            # else:
-            #     eplhb_coeff = th.tensor(eplhb_coeff, dtype=th.float32)
 
             final_loss = (
                  base_loss 

@@ -364,7 +364,8 @@ def load_recorder_data(recorder,
         eplhb_out = None
         eplhb_coeff = None
         cue_EPLHb_output = None
-        cue_EPLHb_coeff = None 
+        cue_EPLHb_coeff = None
+    # print(animal_sign_index)
 
     # ----------------------------------------------------------------------
     # Fill tds_PD and tds_TD with zeros if not provided
