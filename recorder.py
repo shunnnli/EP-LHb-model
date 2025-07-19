@@ -196,6 +196,11 @@ class SessionRecorder:
                 if hasattr(q_net, 'eplhb'):
                     # Detach and store the weights of the first and second Linear layers in eplhb_weights and lhbda_weights, respectively
                     eplhb_weights = q_net.eplhb[0].weight.detach().cpu().numpy().copy() if hasattr(q_net.eplhb[0], 'weight') else None
+                    # Print first 5 weights
+                    # if eplhb_weights is not None and eplhb_weights.shape[0] > 5:
+                    #     print("EPLHb weights (first 5):", eplhb_weights[:5,1])
+                    # else:
+                    #     print("EPLHb weights are not available or too small.")
                     
                     if record_sign_index:
                         # calculate sign index for each LHb neuron

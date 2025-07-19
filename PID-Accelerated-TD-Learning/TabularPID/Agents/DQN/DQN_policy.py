@@ -426,7 +426,11 @@ class DQNPolicy(BasePolicy):
         from .DQN_policy import EPLHbNetwork
         if isinstance(self.q_net, EPLHbNetwork):
             eplhb_params = list(self.q_net.eplhb.parameters())
-            eplhb_coeff_param = [self.q_net.eplhb_coeff_raw]
+            # Only include eplhb_coeff_raw if coeff_lr > 0
+            if coeff_lr > 0:
+                eplhb_coeff_param = [self.q_net.eplhb_coeff_raw]
+            else:
+                eplhb_coeff_param = []
         else:
             eplhb_params = []
             eplhb_coeff_param = []
@@ -436,12 +440,16 @@ class DQNPolicy(BasePolicy):
         ]
 
         # Setup optimizer with initial learning rate
+        param_groups = [
+            {'params': other_params, 'lr': main_lr},
+            {'params': eplhb_params, 'lr': eplhb_lr},
+        ]
+        # Only add eplhb_coeff_param group if coeff_lr > 0
+        if coeff_lr > 0:
+            param_groups.append({'params': eplhb_coeff_param, 'lr': coeff_lr})
+            
         self.optimizer = self.optimizer_class(  # type: ignore[call-arg]
-            [
-                {'params': other_params, 'lr': main_lr},
-                {'params': eplhb_params, 'lr': eplhb_lr},
-                {'params': eplhb_coeff_param, 'lr': coeff_lr},
-            ],
+            param_groups,
             **self.optimizer_kwargs,
         )
 

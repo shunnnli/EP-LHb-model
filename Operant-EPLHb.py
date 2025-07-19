@@ -50,8 +50,8 @@ session_params = {
 # PID-DQN parameters
 pid_params = {
     "learning_rate": 1e-3,
-    "eplhb_lr": 1e-2,
-    "coeff_lr": 0,
+    "eplhb_lr": 1e-3,
+    "coeff_lr": 0.0,
     "initial_eplhb_coeff": -0.3,
 
     "replay_memory_size": session_params["buffer_size"],
@@ -291,6 +291,58 @@ while trial_idx < num_trials:
         # record every timestep in the session trace
         recorder.record_env_step(trial_idx, action, reward, next_obs, info, model=model,
                                 record_sign_index=True, record_eplhb_weight=True)
+        
+        # # Debug: Print EPLHb information every 10 trials
+        # if trial_idx % 10 == 0:
+        #     with torch.no_grad():
+        #         obs_t = torch.tensor(obs, device=model.device, dtype=torch.float32).unsqueeze(0)
+        #         q_pred, _, eplhb_out = model.policy.q_net.forward_full(obs_t)
+        #         eplhb_contribution = model.policy.q_net.eplhb_coeff * eplhb_out
+        #         q_value = q_pred[0, action].item()
+                
+        #         # Check EPLHb network weights
+        #         eplhb_weights = list(model.policy.q_net.eplhb.parameters())
+        #         weight_norm = eplhb_weights[0].norm().item() if len(eplhb_weights) > 0 else 0
+                
+        #         # Check EPLHb gradients if they exist
+        #         if len(eplhb_weights) > 0 and eplhb_weights[0].grad is not None:
+        #             grad_norm = eplhb_weights[0].grad.norm().item()
+        #             print(f"EPLHb gradient norm = {grad_norm:.6f}")
+                
+        #         # Print first few weights
+        #         if len(eplhb_weights) > 0:
+        #             first_weights = eplhb_weights[0].data.flatten()[:5].cpu().numpy()
+        #             print(f"First 5 EPLHb weights: {first_weights}")
+                
+        #         # Print optimizer learning rates
+        #         optimizer = model.policy.optimizer
+        #         print(f"Optimizer param groups:")
+        #         for i, group in enumerate(optimizer.param_groups):
+        #             print(f"  Group {i}: lr = {group['lr']:.6f}, params = {len(group['params'])}")
+                
+        #         # Get PID terms from the model
+        #         if hasattr(model, 'p_update') and model.p_update is not None:
+        #             p_term = model.p_update.item() if hasattr(model.p_update, 'item') else model.p_update
+        #             kp_val = model.kp.item() if hasattr(model.kp, 'item') else model.kp
+        #             pid_contribution = kp_val * p_term
+                    
+        #             print(f"Trial {trial_idx}: Q-value = {q_value:.4f}, "
+        #                   f"EPLHb coeff = {model.policy.q_net.eplhb_coeff.item():.4f}, "
+        #                   f"EPLHb output = {eplhb_out.item():.4f}, "
+        #                   f"EPLHb contribution = {eplhb_contribution.item():.4f}, "
+        #                   f"Relative contribution = {abs(eplhb_contribution.item()/q_value)*100:.2f}%, "
+        #                   f"P term = {p_term:.4f}, kp = {kp_val:.4f}, "
+        #                   f"PID contribution = {pid_contribution:.4f}, "
+        #                   f"EPLHb/PID ratio = {abs(eplhb_contribution.item()/pid_contribution)*100:.2f}%, "
+        #                   f"EPLHb weight norm = {weight_norm:.4f}")
+        #         else:
+        #             print(f"Trial {trial_idx}: Q-value = {q_value:.4f}, "
+        #                   f"EPLHb coeff = {model.policy.q_net.eplhb_coeff.item():.4f}, "
+        #                   f"EPLHb output = {eplhb_out.item():.4f}, "
+        #                   f"EPLHb contribution = {eplhb_contribution.item():.4f}, "
+        #                   f"Relative contribution = {abs(eplhb_contribution.item()/q_value)*100:.2f}%, "
+        #                   f"EPLHb weight norm = {weight_norm:.4f}")
+        
         # update obs, z_prev
         obs, z_prev = next_obs, z_update
 

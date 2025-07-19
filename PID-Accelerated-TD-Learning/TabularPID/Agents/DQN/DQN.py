@@ -289,7 +289,8 @@ class EPLHb_DQN(OffPolicyAlgorithm):
 
             # pull out your learnable coeff
             # Use eplhb_coeff property directly to keep it in the computation graph
-            target = target + self.policy.q_net.eplhb_coeff * eplhb_out
+            # Fix shape mismatch: eplhb_out is (batch_size,) but target is (batch_size, 1)
+            target = target + self.policy.q_net.eplhb_coeff * eplhb_out.unsqueeze(-1)
 
             # compute TD-error and base loss
             td_error = q_taken - target.squeeze(-1)
@@ -325,6 +326,29 @@ class EPLHb_DQN(OffPolicyAlgorithm):
         self.logger.record("rollout/BRs_L2_norm", th.norm(self.BRs).item() / np.sqrt(self.BRs.shape[0]))
         self.logger.dump(step=self.num_timesteps)
 
+    def _update_learning_rate(self, optimizers: Union[List[th.optim.Optimizer], th.optim.Optimizer]) -> None:
+        """
+        Update the learning rate for optimizers, but preserve EPLHb learning rate.
+        """
+        # Log the current learning rate
+        self.logger.record("train/learning_rate", self.lr_schedule(self._current_progress_remaining))
+
+        if not isinstance(optimizers, list):
+            optimizers = [optimizers]
+        
+        for optimizer in optimizers:
+            # Get the current learning rate from schedule
+            new_lr = self.lr_schedule(self._current_progress_remaining)
+            
+            # Update learning rates for each parameter group
+            for param_group in optimizer.param_groups:
+                # Check if this is the EPLHb parameter group (group 1)
+                if len(optimizer.param_groups) > 1 and param_group == optimizer.param_groups[1]:
+                    # Keep the EPLHb learning rate unchanged
+                    continue
+                else:
+                    # Update the main network learning rate
+                    param_group["lr"] = new_lr
 
     def _train_recurrent(self, gradient_steps: int, batch_size: int, seq_len: int):
         losses = []
@@ -400,8 +424,8 @@ class EPLHb_DQN(OffPolicyAlgorithm):
                     base_target_t = q_at + kp * p_up + ki * i_up + kd * d_up  # [B]
 
                 # Add EPLHb contribution to target (this allows gradients to flow)
-                eplhb_coeff = net.eplhb_coeff
-                target_t = base_target_t + eplhb_coeff * eplhb_t  # [B]
+                target_t = base_target_t + net.eplhb_coeff * eplhb_t  # [B]
+                # target_t = base_target_t
 
                 q_pred_seq.append(q_at.unsqueeze(1))     # list of [B,1]
                 target_seq.append(target_t.unsqueeze(1)) # list of [B,1]
@@ -429,7 +453,7 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             noise_seq = th.randn_like(td_error_seq)
 
             final_loss = (
-                 base_loss 
+                 base_loss
                 #  + (noise_seq * td_error_seq).mean()
             )
 
