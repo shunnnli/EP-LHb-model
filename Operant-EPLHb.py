@@ -50,7 +50,7 @@ session_params = {
 # PID-DQN parameters
 pid_params = {
     "learning_rate": 1e-3,
-    "eplhb_lr": 1e-3,
+    "eplhb_lr": 1e-4,
     "coeff_lr": 0.0,
     "initial_eplhb_coeff": -0.3,
 
@@ -69,7 +69,7 @@ pid_params = {
     "dump_buffer": False,
     "is_double": False,
     "policy_evaluation": False,
-    "seed": 1222,
+    "seed": 12242,
 
     "kp": 1.0,
     "ki": 0.0,
@@ -362,5 +362,5 @@ while trial_idx < num_trials:
 # --------------------
 # Plot Summary Figure
 # --------------------
-plot_figure(recorder, dt=session_params["dt"], show=True,
+plot_figure(recorder, td_error_type='internal', dt=session_params["dt"], show=True,
             pre_steps=session_params["pre_steps"], post_steps=session_params["post_steps"])

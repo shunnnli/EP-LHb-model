@@ -280,7 +280,7 @@ def get_amplitude(signal, window=None):
     return amp
 
 
-def load_recorder_data(recorder,
+def load_recorder_data(recorder, td_error_type='external',
                 tds_PD=None, tds_TD=None,
                 dt=0.1,
                 pre_steps=20, post_steps=30, cue_duration=0.5,
@@ -327,7 +327,11 @@ def load_recorder_data(recorder,
     d_kd_history = [d_update_step[trial_idx == t].mean() for t in range(num_trials)]
 
     # Align cue_licks and TD errors to the cue
-    error = td_errors
+    if td_error_type == 'external':
+        error = td_errors
+    elif td_error_type == 'internal':
+        error = td_pid_errors
+
     pid_error = td_pid_errors
     cue_licks = get_traces(licks, tones, pre_steps, post_steps)
     cue_error   = get_traces(error, tones, pre_steps, post_steps)
@@ -407,31 +411,41 @@ def load_recorder_data(recorder,
     output_dict = {
         'num_trials': num_trials,
         'reward_history': reward_history,
+        'p_history': p_history,
+        'd_history': d_history,
+        'i_history': i_history,
+        'p_kp_history': p_kp_history,
+        'i_ki_history': i_ki_history,
+        'd_kd_history': d_kd_history,
         'kp_history': kp_history,
         'ki_history': ki_history,
         'kd_history': kd_history,
         'update_step': update_step,
+        'td_errors': td_errors,
+        'td_pid_errors': td_pid_errors,
+        'DAs': DAs,
+
         'cue_licks': cue_licks,
         'cue_error': cue_error,
         'cue_omissions': cue_omissions,
         'trial_anticipatory_licks': trial_anticipatory_licks,
         'trial_TD_amplitude': trial_TD_amplitude,
         'trial_pid_TD_amplitude': trial_pid_TD_amplitude,
-        'td_pid_errors': td_pid_errors,
-        't_axis': t_axis,
-        'trial_axis': trial_axis,
-        'DAs': DAs,
+
         'animal_sign_index': animal_sign_index,
         'trial_animal_sign_index': trial_animal_sign_index,
         'eplhb_out': eplhb_out,
         'eplhb_coeff': eplhb_coeff,
         'cue_EPLHb_output': cue_EPLHb_output,
         'cue_EPLHb_coeff': cue_EPLHb_coeff,
+        
+        't_axis': t_axis,
+        'trial_axis': trial_axis,
     }
     return output_dict
 
 
-def plot_figure(recorder,
+def plot_figure(recorder, td_error_type='external',
                 tds_PD=None, tds_TD=None,
                 dt=0.1,
                 pre_steps=20, post_steps=30, cue_duration=0.5,
@@ -444,6 +458,7 @@ def plot_figure(recorder,
 
     output_dict = load_recorder_data(
         recorder,
+        td_error_type=td_error_type,
         tds_PD=tds_PD,
         tds_TD=tds_TD,
         dt=dt,

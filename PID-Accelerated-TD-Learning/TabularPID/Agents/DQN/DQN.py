@@ -406,14 +406,14 @@ class EPLHb_DQN(OffPolicyAlgorithm):
                 with th.no_grad():
                     # 1‐step Bellman target
                     q_tp1 = tgt(next_obs_seq[:, t, :]).max(dim=1)[0]
-                    td    = rew_seq[:, t] + (1 - done_seq[:, t]) * gamma * q_tp1
+                    td_target = rew_seq[:, t] + (1 - done_seq[:, t]) * gamma * q_tp1
 
                     # PID gains & smoothers
                     kp, ki, kd, alpha, beta = self.gain_adapter.get_gains(
                         obs_seq[:, t, :], a_t, batch
                     )
 
-                    BR    = td - q_at                     # [B]
+                    BR    = td_target - q_at                     # [B]
                     z_new = beta * z_prev + alpha * BR    # [B]
 
                     p_up  = BR
@@ -942,14 +942,14 @@ class PID_DQN(OffPolicyAlgorithm):
                 with th.no_grad():
                     # 1‐step Bellman target
                     q_tp1 = tgt(next_obs_seq[:, t, :]).max(dim=1)[0]
-                    td    = rew_seq[:, t] + (1 - done_seq[:, t]) * gamma * q_tp1
+                    td_target = rew_seq[:, t] + (1 - done_seq[:, t]) * gamma * q_tp1
 
                     # PID gains & smoothers
                     kp, ki, kd, alpha, beta = self.gain_adapter.get_gains(
                         obs_seq[:, t, :], a_t, batch
                     )
 
-                    BR    = td - q_at                     # [B]
+                    BR    = td_target - q_at                     # [B]
                     z_new = beta * z_prev + alpha * BR    # [B]
 
                     p_up  = BR
