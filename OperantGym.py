@@ -22,78 +22,127 @@ class OperantLearning(gym.Env):
 
     def __init__(self, pairing='reward', omission_prob: float = 0.0, 
                  enl_duration: tuple[float, float] = (2.0, 4.0),
-                 action_cost: float = 0.1, enl_penalty: float = 0.01,
-                 detection_delay: int = 0,
+                 trial_start: str = 'enl_start', detection_delay: int = 1,
+                 action_cost: float = 0.1, enl_penalty: float = 0.1,
+                 reward_decay: bool = True, reward_decay_time: float = 1.0,
                  render_mode: str = None,
-                 print: bool = False):
+                 print_status: bool = False):
         super().__init__()
+
         # Actions: 0 = no lick, 1 = lick
         self.action_space = spaces.Discrete(2)
-        # Observations: [phase, time_in_phase, cue_on]
-        # self.max_time = int(enl_duration[1] * 10) + 20  # max ENL time + response window
-        # self.observation_space = spaces.MultiDiscrete([2, self.max_time, 2])
-        self.observation_space = spaces.MultiDiscrete([2, 2])
+        
+        if trial_start == 'enl_start':
+            # Observations: [phase, cue_on, licks_since_reward]
+            # self.observation_space = spaces.Box(
+            #     low=np.array([0, 0, 0]),  # phase is binary, cue_on is binary, licks_since_reward is non-negative
+            #     high=np.array([1, 1, 100]),   # reasonable bounds for phase, cue_on is binary, licks_since_reward has reasonable upper bound
+            #     dtype=np.float32
+            # )
+            self.observation_space = spaces.MultiDiscrete([2, 2])
+        elif trial_start == 'cue_start':
+            # Observations: [delivered_reward, cue_on, licks_since_reward]
+            self.observation_space = spaces.Box(
+                low=np.array([-20.0, 0, 0]),  # delivered_reward can be negative, cue_on is binary, licks_since_reward is non-negative
+                high=np.array([20.0, 1, 100]),   # reasonable bounds for reward, cue_on is binary, licks_since_reward has reasonable upper bound
+                dtype=np.float32
+            )
 
         # Reward structures
         self.enl_penalty = enl_penalty
         self.action_cost = action_cost
+        self.trial_start = trial_start
+
+        # how many steps to delay reward detection
+        self.detection_delay = detection_delay + 1  # +1 to account for the first step
+        self._reward_buffer = deque([0]*self.detection_delay, maxlen=self.detection_delay)
+        self._pending_reset_steps = 0
 
         # Trial parameters
         self.omission_prob = omission_prob
         self.trial_type = pairing  # "reward" or "punish"
         self.enl_duration_range = (int(enl_duration[0] * 10), int(enl_duration[1] * 10))  # [min, max] in seconds
         
-        # how many steps to delay reward detection
-        self.detection_delay = detection_delay + 1  # +1 to account for the first step
-        self._reward_buffer = deque([0]*self.detection_delay, maxlen=self.detection_delay)
-        self._pending_reset_steps = 0
+        # Reward decay parameters
+        self.reward_decay = reward_decay  # whether to use decay mechanism
+        self.reward_decay_time = reward_decay_time  # time in seconds for decay
+        self.reward_decay_steps = int(reward_decay_time * 10)  # convert to timesteps
+        # Calculate decay factor to reach 0.01 after reward_decay_steps
+        self.reward_decay_factor = 0.01 ** (1.0 / self.reward_decay_steps) if self.reward_decay_steps > 0 else 1.0
 
         # Internal state
-        self.phase = 0             # 0 = ENL, 1 = response
         self.time = 0
+        self.phase = 0  # 0 = ENL, 1 = response
         self.enl_duration = 0
         self.lick_buffer = []
         self.cue_on = 0
         self.omission_trial = False
         self.last_trial_info = None
         self.outcome_type = None
+        self.pending_reward = 0  # reward waiting to be delivered on next lick
+        self.reward_start_time = 0  # when the reward became available
+        self.enl_start_time = 0  # when ENL period started
+        self.cur_enl_duration = 0  # whether currently in ENL period
+        self.licks_since_reward = 0  # number of licks since reward became available
+        self.is_reward = False  # whether any reward has been delivered in current trial
+        self.delivered_reward = 0.0  # current delivered reward for observation
 
         # Fake render mode
         self.render_mode = render_mode
         self._screen = None
 
-        self.print = print  # whether to print debug info
+        self.print_status = print_status  # whether to print debug info
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        self.phase = 0
         self.time = 0
+        self.phase = 0
         self.enl_duration = np.random.randint(self.enl_duration_range[0], self.enl_duration_range[1])  # 2-4s in 100ms steps
         self.lick_buffer = []
         self.cue_on = 0
         self.omission_trial = (np.random.rand() < self.omission_prob)
         self.last_trial_info = None
         self.outcome_type = None
+        self.pending_reward = 0
+        self.reward_start_time = 0
+        self.enl_start_time = 0
+        self.cur_enl_duration = 0
+        self.licks_since_reward = 0
+        self.is_reward = False
+        self.delivered_reward = 0.0
+
         # clear reward buffer
         self._pending_reset_steps = 0
         self._reward_buffer.clear()
         self._reward_buffer.extend([0]*self.detection_delay)
+
         return self._get_obs(), {}
 
     def _get_obs(self):
-        # noisy_time = int(self.time + np.random.randn()*10)
-        # noisy_time = np.clip(noisy_time, 0, self.max_time)
-        return np.array([self.phase, self.cue_on], dtype=int)
+        # Return delivered reward and cue status
+        if self.trial_start == 'enl_start':
+            return np.array([self.phase, self.cue_on], dtype=np.float32)
+        elif self.trial_start == 'cue_start':
+            # Return delivered reward, cue status, and licks since last reward
+            return np.array([self.delivered_reward, self.cue_on, self.licks_since_reward], dtype=np.float32)
 
     def _reset_trial(self):
         """Reset internal state for next trial after outcome delivery."""
-        self.phase = 0
         self.time = 0
+        self.phase = 0
         self.enl_duration = np.random.randint(20, 40)
         self.lick_buffer = []
         self.cue_on = 0
         self.omission_trial = (np.random.rand() < self.omission_prob)
         self.outcome_type = None
+        self.pending_reward = 0
+        self.reward_start_time = 0
+        self.enl_start_time = 0
+        self.cur_enl_duration = 0
+        self.licks_since_reward = 0
+        self.is_reward = False
+        self.delivered_reward = 0.0
+
         # clear reward buffer
         self._pending_reset_steps = 0
         self._reward_buffer.clear()
@@ -112,11 +161,21 @@ class OperantLearning(gym.Env):
             return None
 
     def step(self, action):
+        if self.trial_start == 'enl_start':
+            return self.step_start_with_enl(action)
+        elif self.trial_start == 'cue_start':
+            return self.step_start_with_cue(action)
+        else:
+            # Default to cue_start if trial_type is not recognized
+            return self.step_start_with_enl(action)
+
+
+    def step_start_with_enl(self, action):
         reward = 0
         terminated = False
         truncated = False
         info = {}
-        print = self.print
+        print_status = self.print_status
 
         # Incur action cost for licking
         if action == 1:
@@ -149,7 +208,7 @@ class OperantLearning(gym.Env):
                         "done": False,
                         "outcome": "trial_start",
                     }
-                    if print: print("     Cue ON")
+                    if print_status: print(f"     Time {self.time}: Cue ON")
                 else:
                     info = {
                         "lick": len(self.lick_buffer),
@@ -185,7 +244,7 @@ class OperantLearning(gym.Env):
                         self._pending_reset_steps = self.detection_delay
                     else:
                         self._reset_trial()
-                    if print: print("     Big outcome delivered")
+                    if print_status: print(f"     Time {self.time}: Big outcome delivered")
 
                 # Check end of response window for small outcome
                 elif self.time >= 20 and self.outcome_type is None:
@@ -204,7 +263,7 @@ class OperantLearning(gym.Env):
                         self._pending_reset_steps = self.detection_delay
                     else:
                         self._reset_trial()
-                    if print: print("     Small outcome delivered")
+                    if print_status: print(f"     Time {self.time}: Small outcome delivered")
 
             else:
                 info = {
@@ -245,4 +304,144 @@ class OperantLearning(gym.Env):
 
         return self._get_obs(), final_reward, terminated, truncated, info
 
-    
+
+    def step_start_with_cue(self, action):
+        delivered_reward = 0  # Initialize delivered_reward - this is what agent sees
+        cur_reward = 0
+        terminated = False
+        truncated = False
+        info = {}
+        print_status = self.print_status
+
+        # Incur action cost for licking
+        # Continuous ENL check throughout the trial
+        if action == 1:
+            # Reset ENL period when agent licks
+            self.enl_start_time = self.time
+            self.cur_enl_duration = 0
+            # incur action cost and ENL penalty 
+            delivered_reward -= self.action_cost
+            if self.licks_since_reward > 10:
+                self.enl_penalty += self.enl_penalty
+                delivered_reward -= self.enl_penalty
+        else: 
+            self.cur_enl_duration += 1
+        
+        # Start trial with cue ON
+        if self.time == 0:
+            self.cue_on = 1
+            self.phase = 1
+            if print_status: 
+                print(f"     Time {self.time}: Cue ON (ENL duration: {self.enl_duration})")
+        
+        # Turn off cue after 500ms (5 steps)
+        if self.time >= 5:
+            self.cue_on = 0
+        
+        # End trial if ENL period is complete
+        if self.cur_enl_duration >= self.enl_duration:
+            # ENL period complete: end trial
+            if print_status: print(f"     Time {self.time}: trial end, ENL complete")
+            info = {
+                "lick": len(self.lick_buffer),
+                "cue": self.cue_on,
+                "done": True,
+                "outcome": "trial_end",
+            }
+            self._reset_trial()
+            return self._get_obs(), delivered_reward, terminated, truncated, info
+
+        # End trial if 100 sec have passed
+        if self.time >= 999:
+            # ENL period complete: end trial
+            if print_status: print(f"     Time {self.time}: trial end, max time reached")
+            info = {
+                "lick": len(self.lick_buffer),
+                "cue": self.cue_on,
+                "done": True,
+                "outcome": "trial_end",
+            }
+            self._reset_trial()
+            return self._get_obs(), delivered_reward, terminated, truncated, info
+        
+        # Handle licking and reward collection
+        if action == 1:
+            self.lick_buffer.append(action)
+            
+            # Check for big outcome (2+ licks) after cue is off
+            if self.cue_on == 0 and len(self.lick_buffer) >= 2 and self.time < 20 and self.outcome_type is None:
+                self.outcome_type = "big"
+                raw_outcome = 10 if self.trial_type == "reward" else -10
+                outcome = 0 if self.omission_trial else raw_outcome
+                self.phase = 0
+                
+                if outcome != 0:
+                    self.pending_reward = outcome
+                    self.reward_start_time = self.time
+                    self.licks_since_reward = 0  # Reset lick counter for new reward
+                    if print_status: print(f"     Time {self.time}: Big outcome available: {outcome}")
+                
+                info = {
+                    "lick": len(self.lick_buffer),
+                    "cue": self.cue_on,
+                    "done": False,
+                    "outcome": "omission" if self.omission_trial else self.outcome_type,
+                }
+            
+            # Check for small outcome at end of trial (20 steps = 2 seconds)
+            elif self.time >= 20 and self.outcome_type is None:
+                self.outcome_type = "small"
+                raw_outcome = 2 if self.trial_type == "reward" else -2
+                outcome = 0 if self.omission_trial else raw_outcome
+                self.phase = 0
+                
+                if outcome != 0:
+                    self.pending_reward = outcome
+                    self.reward_start_time = self.time
+                    self.licks_since_reward = 0  # Reset lick counter for new reward
+                    if print_status: print(f"     Time {self.time}: Small outcome available: {outcome}")
+                
+                info = {
+                    "lick": len(self.lick_buffer),
+                    "cue": self.cue_on,
+                    "done": False,
+                    "outcome": "omission" if self.omission_trial else self.outcome_type,
+                }
+        
+            # Check if there's pending reward to deliver (only after cue is off)
+            if self.cue_on == 0 and self.pending_reward > 0:
+                # Mark that a reward has been delivered in this trial
+                self.is_reward = True
+
+                if self.reward_decay:
+                    # Use decay mechanism
+                    decay_factor = self.reward_decay_factor ** self.licks_since_reward  # decay per lick
+                    cur_reward = self.pending_reward * decay_factor
+                    delivered_reward += cur_reward
+                    if print_status: print(f"     Time {self.time}: Lick (obtained {cur_reward:.2f} reward)")
+
+                else:
+                    # Give all reward at first lick
+                    cur_reward = self.pending_reward
+                    delivered_reward += cur_reward
+                    if print_status: print(f"     Time {self.time}: Lick (obtained {cur_reward:.2f} reward)")
+                    # Clear pending reward after first delivery
+                    self.pending_reward = 0
+
+            # Print and update lick info
+            if print_status and not self.is_reward: print(f"     Time {self.time}: Lick")
+            if self.is_reward: self.licks_since_reward += 1
+
+        # Fill placeholders if no info set
+        if not info:
+            info = {
+                "lick": len(self.lick_buffer),
+                "cue": self.cue_on,
+                "done": False,
+                "outcome": self.outcome_type,
+            }
+        
+        # Update the delivered_reward for the observation
+        self.delivered_reward = delivered_reward
+        self.time += 1
+        return self._get_obs(), delivered_reward, terminated, truncated, info

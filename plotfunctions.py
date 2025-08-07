@@ -36,12 +36,19 @@ def get_traces(data, event, pre_steps, post_steps):
     T    = data.shape[0]
 
     if len(data) == len(event):
+        # Find all tone events: both transitions (0->1) and initial tone (if event[0] == 1)
         event_idx = np.where(np.diff(event) == 1)[0] + 1
+        # If the first element is 1, add position 0 as the first tone event
+        if event[0] == 1:
+            event_idx = np.concatenate([[0], event_idx])
     else:
         event_idx = np.asarray(event, dtype=int)
 
     n_trials   = len(event_idx)
     window_len = pre_steps + post_steps + 1
+
+    # Debug: print the number of events found
+    # print(f"get_traces: Found {n_trials} events, data length: {len(data)}, event length: {len(event)}")
 
     aligned_data = np.zeros((n_trials, window_len), dtype=data.dtype)
 
@@ -308,7 +315,6 @@ def load_recorder_data(recorder, td_error_type='external',
     i_update_step = ki_step * i_step
     d_update_step = kd_step * d_step
     update_step = kp_step * p_step + ki_step * i_step + kd_step * d_step
-    
 
     # Get trial based history
     trial_idx    = np.array(recorder.trial_idx)[1:]
@@ -337,6 +343,13 @@ def load_recorder_data(recorder, td_error_type='external',
     cue_error   = get_traces(error, tones, pre_steps, post_steps)
     cue_pid_error = get_traces(pid_error, tones, pre_steps, post_steps)
     cue_omissions = get_traces(omissions, tones, pre_steps, post_steps)
+
+    # Check if we have the correct number of trials
+    expected_trials = num_trials
+    actual_trials = cue_licks.shape[0]
+    
+    if actual_trials != expected_trials:
+        print(f"Warning: Expected {expected_trials} trials but got {actual_trials} trials")
 
     # Count anticipatory licks (lick number during cue window)
     cue_steps = int(cue_duration / dt)
@@ -393,8 +406,8 @@ def load_recorder_data(recorder, td_error_type='external',
 
     # time axis from -1s to +2s at 0.1s steps
     dt = 0.1
-    max_trial_steps = pre_steps + post_steps
-    t_axis = np.linspace(-pre_steps * dt, (max_trial_steps - pre_steps) * dt, max_trial_steps + 1)
+    window_len = pre_steps + post_steps + 1  # This should match cue_licks.shape[1]
+    t_axis = np.linspace(-pre_steps * dt, post_steps * dt, window_len)
     trial_axis = np.arange(num_trials)+1
 
     # build DA kernel
@@ -481,7 +494,7 @@ def plot_figure(recorder, td_error_type='external',
     ax0.set_ylabel("Total Reward")
 
     # top-middle: Kp, Kd, Ki trace or EPLHb
-    if hasattr(recorder, 'eplhb_out'):
+    if recorder.eplhb:
         # if recorder have eplhb_out, plot it
         ax1 = fig.add_subplot(gs[0, 1])
         plotSEM(output_dict['t_axis'], output_dict['cue_EPLHb_output'], omissions=output_dict['cue_omissions'], label="EPLHb output", color='tab:green', ax=ax1, alpha=0.1)
@@ -550,7 +563,7 @@ def plot_figure(recorder, td_error_type='external',
     ax5 = fig.add_subplot(gs[2, 1])
     ax5.plot(output_dict['trial_axis'], output_dict['trial_pid_TD_amplitude'], color='tab:orange', label='PID TD Amplitude', linewidth=0.7)
     ax5.plot(output_dict['trial_axis'], output_dict['trial_TD_amplitude'], color='tab:blue', label='TD Amplitude', linewidth=1)
-    if hasattr(recorder, 'eplhb_sign_index'):
+    if recorder.eplhb and hasattr(recorder, 'eplhb_sign_index'):
         ax5b = ax5.twinx()
         ax5b.plot(output_dict['trial_axis'], output_dict['trial_animal_sign_index'], color='tab:green', label='Animal Sign Index')
         ax5b.set_ylabel("Animal Sign Index", color='tab:green')

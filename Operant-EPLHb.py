@@ -95,7 +95,9 @@ env = OperantLearning(
     enl_duration=session_params["enl_duration"],
     action_cost=session_params["action_cost"],
     enl_penalty=session_params["enl_penalty"],
-    detection_delay=1,
+    reward_decay=True,
+    reward_decay_time=2.0,
+    print_status=False,
 )
 
 # Gain adapter
@@ -346,7 +348,7 @@ while trial_idx < num_trials:
         # update obs, z_prev
         obs, z_prev = next_obs, z_update
 
-    if outcome != "enl_break": 
+    if outcome == "trial_end": 
         trial_idx += 1 # update trial index
         # compute step-based epsilon
         frac = min(1.0, trial_idx / max(1, decay_trials))

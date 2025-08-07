@@ -25,7 +25,7 @@ from types import SimpleNamespace
 # session_params defined here
 base_session_params = {
     "pairing":          'reward',
-    "num_trials":       400,
+    "num_trials":       200,
     "pre_steps":        10,
     "post_steps":       40,
     "enl_duration":     (2.0, 4.0),
@@ -42,7 +42,12 @@ base_session_params = {
     "batch_size":       1,
     "buffer_size":      1,
     "dt":               0.1,
-    "continual_learning": True,
+
+    # continual learning settings
+    "change_start": 100,  # start changing parameters after this many trials
+    "change_interval": 30,
+    "difficulty_change": "random", # 'none', 'increase', 'decrease', 'random'
+    "pairing_change": False,
 }
 
 # pid_params defined here
@@ -103,8 +108,7 @@ def train_once(session_params, pid_params):
         enl_duration=session_params["enl_duration"],
         action_cost=session_params["action_cost"],
         enl_penalty=session_params["enl_penalty"],
-        detection_delay=1,
-        print=False
+        print_status=False
     )
 
     gain_adapter = SingleGainAdapter(
@@ -179,7 +183,13 @@ def train_once(session_params, pid_params):
                 desc=f"Trials (kd={pid_params['kd']}, omit={session_params['omission_prob']}, seed={pid_params['seed']})",
                 unit="trial")
     retrain = False
-    continual_learning = session_params["continual_learning"]
+
+    # Set continual learning flag
+    change_start = session_params["change_start"]
+    change_interval = session_params["change_interval"]
+    pairing_change = session_params["pairing_change"]
+    difficulty_change = session_params["difficulty_change"]
+
 
     obs, _ = env.reset()
     trial_idx = 0
@@ -195,8 +205,19 @@ def train_once(session_params, pid_params):
         trial_timesteps = 0
         z_prev = 0.0
 
-        if continual_learning and trial_idx > 100:
-            env.omission_prob = np.ceil((trial_idx-100)/33) * 0.1
+        # Make changes for continual learning
+        if trial_idx >= change_start and (trial_idx - change_start) % change_interval == 0:
+            if pairing_change:
+                # Change pairing type randomly
+                session_params["pairing"] = random.choice(['reward', 'punish'])
+                print(f"Changing pairing to {session_params['pairing']} at trial {trial_idx}")
+            else:
+                if difficulty_change == "increase":
+                    session_params["omission_prob"] = min(0.1, session_params["omission_prob"] + 0.1)
+                elif difficulty_change == "decrease":
+                    session_params["omission_prob"] = max(0.0, session_params["omission_prob"] - 0.1)
+                elif difficulty_change == "random":
+                    session_params["omission_prob"] = random.choice(np.arange(0.0, 0.9, 0.1))
 
         # run one trial
         while not done:
@@ -253,7 +274,7 @@ def train_once(session_params, pid_params):
             obs, z_prev = next_obs, z_update
 
         # update exploration rate upon trial completion
-        if outcome != "enl_break":
+        if outcome == "trial_end":
             trial_idx += 1  # update trial index
             enl_count = 0   # reset ENL count
             frac = min(1.0, trial_idx / max(1, decay_trials))
@@ -287,10 +308,9 @@ def train_once(session_params, pid_params):
 # ----------------------------------------------------------------
 if __name__ == "__main__":
     # Define sweep grid
-    kd_values        = [0, 0.3]  # PID derivative gain values
+    kd_values        = [0]  # PID derivative gain values
     omission_probs   = [0]
-    repeats          = 5  # Number of repeats for each combination
-
+    repeats          = 1  # Number of repeats for each combination
 
 
     # Save results settings

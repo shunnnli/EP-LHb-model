@@ -80,6 +80,7 @@ class SessionRecorder:
         self.kd = []
 
         # For EPLHb output and coeff
+        self.eplhb = False
         if not hasattr(self, 'eplhb_out'):
             self.eplhb_out = []
             self.eplhb_weights = []
@@ -194,6 +195,7 @@ class SessionRecorder:
             if q_net is not None and hasattr(q_net, 'forward_full') and hasattr(q_net, 'eplhb_coeff'):
                 # Record EPLHb layer weights
                 if hasattr(q_net, 'eplhb'):
+                    self.eplhb = True
                     # Detach and store the weights of the first and second Linear layers in eplhb_weights and lhbda_weights, respectively
                     eplhb_weights = q_net.eplhb[0].weight.detach().cpu().numpy().copy() if hasattr(q_net.eplhb[0], 'weight') else None
                     # Print first 5 weights

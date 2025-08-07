@@ -141,6 +141,7 @@ class RNNQNetwork(QNetwork):
             activation_fn=self.activation_fn,
         )
         self.post_rnn = nn.Sequential(*layers)
+        print(layers)
 
         # placeholder for hidden state; will be (num_layers, batch, hidden_size)
         self._h = None

@@ -976,8 +976,7 @@ class PID_DQN(OffPolicyAlgorithm):
             q_pred = th.cat(q_pred_seq, dim=1)         # [B, L]
             target = th.cat(target_seq, dim=1)         # [B, L]
             target = target.view_as(q_pred)   # reshape target to exactly q_pred's shape
-            
-            # 6) one-shot loss over full sequence
+
             # q_pred_seq and target_seq are [B, L], so:
             td_error_seq = q_pred - target  # shape [B, L]
             base_loss = F.smooth_l1_loss(q_pred, target) # [B, L]
