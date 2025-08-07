@@ -149,6 +149,14 @@ class RNNQNetwork(QNetwork):
                 num_layers=rnn_num_layers,
                 batch_first=True,
             )
+        # Custom initialization for RNN/GRU/LSTM weights
+        for name, param in self.rnn.named_parameters():
+            if 'weight' in name:
+                nn.init.xavier_uniform_(param)
+            elif 'bias' in name:
+                nn.init.constant_(param, 0)
+
+        
         # post-RNN MLP head to actions
         layers = create_mlp(
             input_dim=rnn_hidden_size,
@@ -255,6 +263,13 @@ class EPLHbNetwork(QNetwork):
                 num_layers=rnn_num_layers,
                 batch_first=True,
             )
+        # Custom initialization for RNN/GRU/LSTM weights
+        for name, param in self.rnn.named_parameters():
+            if 'weight' in name:
+                nn.init.xavier_uniform_(param)
+            elif 'bias' in name:
+                nn.init.constant_(param, 0)
+
         # post-RNN MLP head to actions
         layers = create_mlp(
             input_dim=rnn_hidden_size,
