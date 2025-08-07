@@ -50,9 +50,12 @@ session_params = {
 # PID-DQN parameters
 pid_params = {
     "learning_rate": 1e-3,
-    "eplhb_lr": 1e-4,
+    "eplhb_lr": 1e-2,
     "coeff_lr": 0.0,
-    "initial_eplhb_coeff": -0.3,
+    "initial_eplhb_coeff": -0.0,
+
+    "rnn_type": "GRU",  # Options: "RNN", "GRU", "LSTM". Change as needed.
+     "l2_lambda": 1e-7,  # L2 regularization strength for EPLHb weights
 
     "replay_memory_size": session_params["buffer_size"],
     "batch_size": session_params["batch_size"],
@@ -116,6 +119,7 @@ policy_kwargs = dict(
     net_arch=[pid_params["inner_size"], pid_params["inner_size"]],
     optimizer_class=optim.Adam,
     with_RNN_layer=True,
+    rnn_type=pid_params["rnn_type"],  # Options: "RNN", "GRU", "LSTM". Change as needed.
     features_extractor_kwargs=dict(
         initial_eplhb_coeff=pid_params["initial_eplhb_coeff"],  # <-- Set your desired initial value here
     ),
@@ -174,6 +178,7 @@ model = EPLHb_DQN(
     replay_buffer_class=replaybuffer,
 )
 orig_buffer = model.replay_buffer # save the original big replay buffer
+model.l2_lambda = pid_params["l2_lambda"]  # Set L2 regularization for EPLHb weights
 
 # Link adapter to model
 gain_adapter.set_model(model)

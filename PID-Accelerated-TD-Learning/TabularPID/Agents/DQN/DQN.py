@@ -247,6 +247,11 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             return self._train_recurrent(gradient_steps, batch_size, seq_len)
 
         losses = []
+        l2_lambda = getattr(self, 'l2_lambda', None)
+        if l2_lambda is None:
+            # Try to get from policy_kwargs or pid_params
+            l2_lambda = getattr(self, 'policy_kwargs', {}).get('l2_lambda', 1e-4)
+
         for _ in range(gradient_steps):
             # Sample replay buffer
             replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)  # type: ignore[union-attr]
@@ -296,12 +301,17 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             td_error = q_taken - target.squeeze(-1)
             base_loss = F.smooth_l1_loss(q_taken, target.squeeze(-1))
 
+            # L2 regularization for EPLHb weights
+            l2_penalty = 0.0
+            if hasattr(self.policy.q_net, 'eplhb') and hasattr(self.policy.q_net.eplhb[0], 'weight'):
+                l2_penalty = l2_lambda * th.sum(self.policy.q_net.eplhb[0].weight ** 2)
+
             # sample a little noise term
             noise = th.randn_like(td_error)
 
             # final joint loss
             final_loss = (
-                base_loss + (noise * td_error).mean()
+                base_loss + (noise * td_error).mean() + l2_penalty
             )
             losses.append(final_loss.item())
 
@@ -356,6 +366,11 @@ class EPLHb_DQN(OffPolicyAlgorithm):
         tgt    = self.q_net_target
         gamma  = self.gamma
         optim  = self.policy.optimizer
+
+        l2_lambda = getattr(self, 'l2_lambda', None)
+        if l2_lambda is None:
+            # Try to get from policy_kwargs or pid_params
+            l2_lambda = getattr(self, 'policy_kwargs', {}).get('l2_lambda', 1e-4)
 
         for _ in range(gradient_steps):
             # 1) sample a sequence of length seq_len
@@ -452,9 +467,15 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             base_loss = F.smooth_l1_loss(q_pred, target) # [B, L]
             noise_seq = th.randn_like(td_error_seq)
 
+            # L2 regularization for EPLHb weights
+            l2_penalty = 0.0
+            if hasattr(self.policy.q_net, 'eplhb') and hasattr(self.policy.q_net.eplhb[0], 'weight'):
+                l2_penalty = l2_lambda * th.sum(self.policy.q_net.eplhb[0].weight ** 2)
+
             final_loss = (
                  base_loss
                 #  + (noise_seq * td_error_seq).mean()
+                + l2_penalty
             )
 
             optim.zero_grad()

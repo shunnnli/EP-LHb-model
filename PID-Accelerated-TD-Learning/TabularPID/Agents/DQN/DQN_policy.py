@@ -111,6 +111,7 @@ class RNNQNetwork(QNetwork):
         normalize_images: bool = True,
         rnn_hidden_size: int = 128,
         rnn_num_layers: int = 1,
+        rnn_type: str = "RNN",
     ) -> None:
         # initialize features_extractor + MLP defaults
         super().__init__(
@@ -126,13 +127,28 @@ class RNNQNetwork(QNetwork):
         self.rnn_hidden_size = rnn_hidden_size
         self.rnn_num_layers  = rnn_num_layers
 
-        # override the pure-MLP q_net with an RNN → MLP
-        self.rnn = nn.RNN(
-            input_size=self.features_dim,
-            hidden_size=rnn_hidden_size,
-            num_layers=rnn_num_layers,
-            batch_first=True,
-        )
+        # Select RNN type
+        if rnn_type == "GRU":
+            self.rnn = nn.GRU(
+                input_size=self.features_dim,
+                hidden_size=rnn_hidden_size,
+                num_layers=rnn_num_layers,
+                batch_first=True,
+            )
+        elif rnn_type == "LSTM":
+            self.rnn = nn.LSTM(
+                input_size=self.features_dim,
+                hidden_size=rnn_hidden_size,
+                num_layers=rnn_num_layers,
+                batch_first=True,
+            )
+        else:
+            self.rnn = nn.RNN(
+                input_size=self.features_dim,
+                hidden_size=rnn_hidden_size,
+                num_layers=rnn_num_layers,
+                batch_first=True,
+            )
         # post-RNN MLP head to actions
         layers = create_mlp(
             input_dim=rnn_hidden_size,
@@ -194,6 +210,7 @@ class EPLHbNetwork(QNetwork):
         rnn_num_layers: int = 1,
         eplhb_hidden_dim: int = 32,
         initial_eplhb_coeff: float = 0.01,
+        rnn_type: str = "RNN",
     ) -> None:
         # initialize features_extractor + MLP defaults
         super().__init__(
@@ -216,13 +233,28 @@ class EPLHbNetwork(QNetwork):
         # Transform to ensure non-positive values: -sigmoid(x) bounds between [-1, 0)
         # eplhb_coeff is now a property that returns -th.sigmoid(self.eplhb_coeff_raw)
 
-        # override the pure-MLP q_net with an RNN → MLP
-        self.rnn = nn.RNN(
-            input_size=self.features_dim,
-            hidden_size=rnn_hidden_size,
-            num_layers=rnn_num_layers,
-            batch_first=True,
-        )
+        # Select RNN type
+        if rnn_type == "GRU":
+            self.rnn = nn.GRU(
+                input_size=self.features_dim,
+                hidden_size=rnn_hidden_size,
+                num_layers=rnn_num_layers,
+                batch_first=True,
+            )
+        elif rnn_type == "LSTM":
+            self.rnn = nn.LSTM(
+                input_size=self.features_dim,
+                hidden_size=rnn_hidden_size,
+                num_layers=rnn_num_layers,
+                batch_first=True,
+            )
+        else:
+            self.rnn = nn.RNN(
+                input_size=self.features_dim,
+                hidden_size=rnn_hidden_size,
+                num_layers=rnn_num_layers,
+                batch_first=True,
+            )
         # post-RNN MLP head to actions
         layers = create_mlp(
             input_dim=rnn_hidden_size,
@@ -362,6 +394,7 @@ class DQNPolicy(BasePolicy):
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
         with_RNN_layer: bool = True,
         with_EPLHb_layer: bool = False,
+        rnn_type: str = "RNN",  # Options: "RNN", "GRU", "LSTM"
     ) -> None:
         super().__init__(
             observation_space,
@@ -383,6 +416,7 @@ class DQNPolicy(BasePolicy):
         self.activation_fn = activation_fn
         self.with_RNN_layer = with_RNN_layer
         self.with_EPLHb_layer = with_EPLHb_layer
+        self.rnn_type = rnn_type
         
         self.net_args = {
             "observation_space": self.observation_space,
@@ -390,6 +424,7 @@ class DQNPolicy(BasePolicy):
             "net_arch": self.net_arch,
             "activation_fn": self.activation_fn,
             "normalize_images": normalize_images,
+            "rnn_type": self.rnn_type,
         }
 
         # Extract initial_eplhb_coeff from features_extractor_kwargs if provided
