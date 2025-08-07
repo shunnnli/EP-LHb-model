@@ -78,6 +78,9 @@ base_pid_params = {
     "is_double":            False,
     "policy_evaluation":    False,
     "seed":                 26,
+
+    "rnn_type": "GRU",  # Options: "RNN", "GRU", "LSTM". Change as needed.
+    "l2_lambda": 1e-6,  # L2 regularization strength for EPLHb weights
 }
 
 
@@ -125,6 +128,7 @@ def train_once(session_params, pid_params):
         net_arch=[pid_params["inner_size"], pid_params["inner_size"]],
         optimizer_class=optim.Adam,
         with_RNN_layer=True,
+        rnn_type=pid_params["rnn_type"],  # Options: "RNN", "GRU", "LSTM". Change as needed.
     )
 
     model = PID_DQN(
