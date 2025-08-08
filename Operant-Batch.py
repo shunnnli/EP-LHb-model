@@ -209,20 +209,6 @@ def train_once(session_params, pid_params):
         trial_timesteps = 0
         z_prev = 0.0
 
-        # Make changes for continual learning
-        if trial_idx >= change_start and (trial_idx - change_start) % change_interval == 0:
-            if pairing_change:
-                # Change pairing type randomly
-                session_params["pairing"] = random.choice(['reward', 'punish'])
-                print(f"Changing pairing to {session_params['pairing']} at trial {trial_idx}")
-            else:
-                if difficulty_change == "increase":
-                    session_params["omission_prob"] = min(0.1, session_params["omission_prob"] + 0.1)
-                elif difficulty_change == "decrease":
-                    session_params["omission_prob"] = max(0.0, session_params["omission_prob"] - 0.1)
-                elif difficulty_change == "random":
-                    session_params["omission_prob"] = random.choice(np.arange(0.0, 0.9, 0.1))
-
         # run one trial
         while not done:
             # set exploration rate
@@ -279,6 +265,19 @@ def train_once(session_params, pid_params):
 
         # update exploration rate upon trial completion
         if outcome == "trial_end":
+            # continual learning
+            if trial_idx >= change_start and ((trial_idx + 1) - change_start) % change_interval == 0:
+                if pairing_change:
+                    session_params["pairing"] = random.choice(['reward', 'punish'])
+                    print(f"Changing pairing to {session_params['pairing']} at trial {trial_idx}")
+                else:
+                    if difficulty_change == "increase":
+                        env.omission_prob = min(0.9, env.omission_prob + 0.1)
+                    elif difficulty_change == "decrease":
+                        env.omission_prob = max(0.0, env.omission_prob - 0.1)
+                    elif difficulty_change == "random":
+                        env.omission_prob = random.choice(np.arange(0.0, 0.9, 0.1))
+                
             trial_idx += 1  # update trial index
             enl_count = 0   # reset ENL count
             frac = min(1.0, trial_idx / max(1, decay_trials))
