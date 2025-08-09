@@ -300,6 +300,7 @@ def load_recorder_data(recorder, td_error_type='external',
     licks     = np.array(recorder.licks)[1:]
     tones     = np.array(recorder.tones)[1:]
     omissions = np.array(recorder.omissions)[1:]
+    omission_probs = np.array(recorder.omission_probs)[1:]
 
     rewards = np.array(recorder.rewards)[1:]
     losses  = np.array(recorder.losses)[1:]
@@ -343,6 +344,7 @@ def load_recorder_data(recorder, td_error_type='external',
     cue_error   = get_traces(error, tones, pre_steps, post_steps)
     cue_pid_error = get_traces(pid_error, tones, pre_steps, post_steps)
     cue_omissions = get_traces(omissions, tones, pre_steps, post_steps)
+    cue_omission_probs = get_traces(omission_probs, tones, pre_steps, post_steps)
 
     # Check if we have the correct number of trials
     expected_trials = num_trials
@@ -403,6 +405,8 @@ def load_recorder_data(recorder, td_error_type='external',
         tds_TD = np.array(tds_TD)
     if not isinstance(cue_omissions, np.ndarray):
         cue_omissions = np.array(cue_omissions)
+    if not isinstance(cue_omission_probs, np.ndarray):
+        cue_omission_probs = np.array(cue_omission_probs)
 
     # time axis from -1s to +2s at 0.1s steps
     dt = 0.1
@@ -441,6 +445,7 @@ def load_recorder_data(recorder, td_error_type='external',
         'cue_licks': cue_licks,
         'cue_error': cue_error,
         'cue_omissions': cue_omissions,
+        'cue_omission_probs': cue_omission_probs,
         'trial_anticipatory_licks': trial_anticipatory_licks,
         'trial_TD_amplitude': trial_TD_amplitude,
         'trial_pid_TD_amplitude': trial_pid_TD_amplitude,
@@ -520,18 +525,36 @@ def plot_figure(recorder, td_error_type='external',
         cur_omissions = output_dict['t_axis'][output_dict['cue_omissions'][i] == 1]
         has_omission = len(cur_omissions) > 0
         if has_omission:
-            ax2.scatter(lick_times, np.ones_like(lick_times)*(i+1),
+            ax2.scatter(lick_times, np.ones_like(lick_times) * (i + 1),
                         color='tab:pink', s=10, marker='o', alpha=0.8, edgecolor='none')
         else:
-            ax2.scatter(lick_times, np.ones_like(lick_times)*(i+1),
+            ax2.scatter(lick_times, np.ones_like(lick_times) * (i + 1),
                         color='tab:blue', s=10, marker='o', alpha=0.8, edgecolor='none')
+            
+    # mark omissions
+    trial_omission_probs = output_dict["cue_omission_probs"][:, 0]
+    change_points = np.where(np.diff(trial_omission_probs) != 0)[0] + 1
+    for cp in change_points:
+        y = cp + 1 
+        new_prob = trial_omission_probs[cp]
+        x_start = output_dict['t_axis'][0] + 0.05
+        dash_len = 0.1
+        x_end = x_start + dash_len
+        ax2.plot([x_start, x_end], [y, y], color="red", linestyle="-", linewidth=0.8)
+        ax2.text(x_end + 0.05, y, f"{new_prob:.1f}",
+                va='center', ha='left', fontsize=6, color='red')
+        
+    ax2.text(output_dict['t_axis'][0] + 0.1, 5, "omit prob",
+            va='center', ha='left', fontsize=6, color='red')
+        
     # mark cue window
-    ax2.fill_betweenx([0, output_dict['num_trials']+1], 0, 0.5, color='tab:orange', alpha=0.2, edgecolor='None')
-    ax2.set_title(f"Lick raster")
+    ax2.fill_betweenx([0, output_dict['num_trials'] + 1], 0, 0.5,
+                    color='tab:orange', alpha=0.2, edgecolor='None')
+    ax2.set_title("Lick raster")
     ax2.set_xlabel("Time (s)")
     ax2.set_ylabel("Trial")
     ax2.set_xlim(output_dict['t_axis'][0], output_dict['t_axis'][-1])
-    ax2.set_ylim(0.5, output_dict['num_trials']+1)
+    ax2.set_ylim(0.5, output_dict['num_trials'] + 1)
 
     # middle‐middle: average TD error + simulated DA signal
     ax3 = fig.add_subplot(gs[1, 1])
