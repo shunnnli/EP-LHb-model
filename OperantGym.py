@@ -302,6 +302,9 @@ class OperantLearning(gym.Env):
         else:
             final_reward = reward
 
+        # save omission prob for graphing
+        info['omission_prob'] = self.omission_prob
+
         return self._get_obs(), final_reward, terminated, truncated, info
 
 
@@ -444,4 +447,8 @@ class OperantLearning(gym.Env):
         # Update the delivered_reward for the observation
         self.delivered_reward = delivered_reward
         self.time += 1
+        
+        # save omission prob for graphing
+        info['omission_prob'] = self.omission_prob
+
         return self._get_obs(), delivered_reward, terminated, truncated, info
