@@ -70,6 +70,7 @@ class SessionRecorder:
         self._prev_obs = None
         self.lick_action = lick_action
         self.omissions = []
+        self.omission_probs = []
         
         # per‐train‐call logs
         self.p  = []
@@ -151,6 +152,7 @@ class SessionRecorder:
         lick_flag     = int(action == self.lick_action)
         tone_flag     = int(info.get("cue", False))
         omission_flag = int(info.get("outcome", False) == "omission")
+        omission_prob = info.get("omission_prob", None)
 
 
         # append
@@ -161,6 +163,7 @@ class SessionRecorder:
         self.rewards.append(reward)
         self.dones.append(bool(info.get("done", False)))
         self.omissions.append(omission_flag)
+        self.omission_probs.append(omission_prob)
 
         # 4) record PID gains
         def mean_or_none(x):
