@@ -40,7 +40,7 @@ pid_params = {
     "buffer_size": 100_000,
     "batch_size": 32,
     "tau": 1,
-    "gamma": 0.99,
+    "gamma": 0.95,
     "gradient_steps": 1,
     "train_freq": 1,
     "target_update_interval": 10,
