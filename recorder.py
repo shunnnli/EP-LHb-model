@@ -134,7 +134,7 @@ class SessionRecorder:
 
                 # PID TD error
                 td_pid_tensor = kp * p + ki * i + kd * d
-                td_pid = td_pid_tensor.item()
+                td_pid = td_pid_tensor.mean().item() # take the mean of each batch
 
                 # sanity check: ensure td tensor + PID components = td_pid
                 # td_pid_reconstructed = (kp * (td_tensor) + ki * i + kd * (q_cur - d_val.gather(1, a_t).squeeze(1))).item()

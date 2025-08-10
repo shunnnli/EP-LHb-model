@@ -539,7 +539,7 @@ class EPLHb_DQN(OffPolicyAlgorithm):
         if self.policy_evaluation:
             action = self.optimal_model.predict(observation)[0]
             return action, state
-
+        
         if not deterministic and np.random.rand() < self.exploration_rate:
             if self.policy.is_vectorized_observation(observation):
                 if isinstance(observation, dict):
