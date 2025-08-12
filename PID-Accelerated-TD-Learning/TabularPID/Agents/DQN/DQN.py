@@ -439,6 +439,7 @@ class EPLHb_DQN(OffPolicyAlgorithm):
                     base_target_t = q_at + kp * p_up + ki * i_up + kd * d_up  # [B]
 
                 # Add EPLHb contribution to target (this allows gradients to flow)
+                # print(f"net.eplhb_coeff * eplhb_t: {net.eplhb_coeff * eplhb_t}")
                 target_t = base_target_t + net.eplhb_coeff * eplhb_t  # [B]
                 # target_t = base_target_t
 
@@ -469,7 +470,7 @@ class EPLHb_DQN(OffPolicyAlgorithm):
 
             # L2 regularization for EPLHb weights
             l2_penalty = 0.0
-            if hasattr(self.policy.q_net, 'eplhb') and hasattr(self.policy.q_net.eplhb[0], 'weight'):
+            if hasattr(self.policy.q_net, 'eplhb') and hasattr(self.policy.q_net.eplhb[0], 'weight') and l2_lambda != 0:
                 l2_penalty = l2_lambda * th.sum(self.policy.q_net.eplhb[0].weight ** 2)
 
             final_loss = (

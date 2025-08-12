@@ -22,11 +22,11 @@ from recorder import SessionRecorder
 # --------------------
 # Configurable parameters
 # --------------------
-ENV_NAME = "CliffWalking-v0"  # Change to "CliffWalking-v0" or any Gymnasium env
+ENV_NAME = "CliffWalking-v1"  # Change to "CliffWalking-v0" or any Gymnasium env
 NUM_EPISODES = 200
 MAX_STEPS = 500
 WARMUP_STEPS = 10000
-TRAIN_EVERY_N_STEPS = 1000  # You can adjust this value
+TRAIN_EVERY_N_STEPS = 100  # You can adjust this value
 render_mode = "none"  # Use "human" for rendering, or None for no rendering
 
 # PID-DQN parameters (customize as needed)
@@ -34,13 +34,13 @@ pid_params = {
     "learning_rate": 1e-3,
     "eplhb_lr": 1e-2,
     "coeff_lr": 0.0,
-    "initial_eplhb_coeff": -0.00,
+    "initial_eplhb_coeff": -0.0,
     "rnn_type": "GRU",  # Options: "RNN", "GRU", "LSTM"
-    "l2_lambda": 1e-6,
+    "l2_lambda": 0.0,
     "buffer_size": 100_000,
-    "batch_size": 32,
+    "batch_size": 1,
     "tau": 1,
-    "gamma": 0.95,
+    "gamma": 0.99,
     "gradient_steps": 1,
     "train_freq": 1,
     "target_update_interval": 10,
@@ -55,7 +55,7 @@ pid_params = {
     "seed": 42,
     "kp": 1.0,
     "ki": 0.0,
-    "kd": 0.0,
+    "kd": 0.3,
     "meta_lr": 0,
     "epsilon_gain": 0.1,
     "alpha": 0.05,
@@ -108,6 +108,7 @@ model = EPLHb_DQN(
     pid_params['d_tau'],
     pid_params['tabular_d'],
     gain_adapter,
+
     policy="MlpPolicy",
     env=env,
     learning_rate=pid_params['learning_rate'],
@@ -240,6 +241,15 @@ for episode in range(NUM_EPISODES):
     eps  = eps_start + frac * (eps_end - eps_start)
     
     print(f"Episode {episode+1}/{NUM_EPISODES}: Total Reward: {total_reward}, eps: {eps:.2f}")
+
+
+# Save the recorder and reward data and params with date and time stamp
+import datetime
+timestamp = datetime.datetime.now().strftime("%Y%m%d")
+
+# recorder.save(f"training_record_{timestamp}.pkl")
+np.save(f"{timestamp}-total_rewards.npy", np.array(all_total_rewards))
+np.save(f"{timestamp}-params.npy", pid_params)
 
 # --------------------
 # Plot summary metrics after training
