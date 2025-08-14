@@ -109,6 +109,7 @@ class RNNQNetwork(QNetwork):
         net_arch: Optional[List[int]] = None,
         activation_fn: Type[nn.Module] = nn.ReLU,
         normalize_images: bool = True,
+        rnn_input_size: int = 128,
         rnn_hidden_size: int = 128,
         rnn_num_layers: int = 1,
         rnn_type: str = "RNN",
@@ -124,27 +125,32 @@ class RNNQNetwork(QNetwork):
             normalize_images=normalize_images,
         )
 
+        self.rnn_input_size = rnn_input_size
         self.rnn_hidden_size = rnn_hidden_size
         self.rnn_num_layers  = rnn_num_layers
+
+        # Create input projection from obs to rnn_input_size
+        self.input_projection = nn.Linear(self.features_dim, rnn_input_size)
+        self.input_norm = nn.LayerNorm(int(rnn_input_size))
 
         # Select RNN type
         if rnn_type == "GRU":
             self.rnn = nn.GRU(
-                input_size=self.features_dim,
+                input_size=rnn_input_size,
                 hidden_size=rnn_hidden_size,
                 num_layers=rnn_num_layers,
                 batch_first=True,
             )
         elif rnn_type == "LSTM":
             self.rnn = nn.LSTM(
-                input_size=self.features_dim,
+                input_size=rnn_input_size,
                 hidden_size=rnn_hidden_size,
                 num_layers=rnn_num_layers,
                 batch_first=True,
             )
         else:
             self.rnn = nn.RNN(
-                input_size=self.features_dim,
+                input_size=rnn_input_size,
                 hidden_size=rnn_hidden_size,
                 num_layers=rnn_num_layers,
                 batch_first=True,
@@ -179,7 +185,9 @@ class RNNQNetwork(QNetwork):
         # 1) extract features
         features = self.extract_features(obs, self.features_extractor)
         # 2) add time-dim: (batch, seq=1, feat_dim)
-        rnn_in = features.unsqueeze(1)
+        rnn_in = self.input_projection(features)
+        rnn_in = self.input_norm(rnn_in)
+        rnn_in = rnn_in.unsqueeze(1)
 
         # 3) if this is the very first call (or after reset), init hidden
         if self._h is None or self._h.size(1) != obs.size(0):
@@ -214,6 +222,7 @@ class EPLHbNetwork(QNetwork):
         net_arch: Optional[List[int]] = None,
         activation_fn: Type[nn.Module] = nn.ReLU,
         normalize_images: bool = True,
+        rnn_input_size: int = 128,
         rnn_hidden_size: int = 128,
         rnn_num_layers: int = 1,
         eplhb_hidden_dim: int = 32,
@@ -231,9 +240,14 @@ class EPLHbNetwork(QNetwork):
             normalize_images=normalize_images,
         )
 
+        self.rnn_input_size = rnn_input_size
         self.rnn_hidden_size = rnn_hidden_size
         self.rnn_num_layers  = rnn_num_layers
         self.eplhb_hidden_dim = eplhb_hidden_dim
+
+        # Create input projection from obs to rnn_input_size
+        self.input_projection = nn.Linear(self.features_dim, rnn_input_size)
+        self.input_norm = nn.LayerNorm(int(rnn_input_size))
         
         # Allow user to specify initial eplhb_coeff value via policy_kwargs
         # Use a transformation to ensure eplhb_coeff is always non-positive and bounded
@@ -244,21 +258,21 @@ class EPLHbNetwork(QNetwork):
         # Select RNN type
         if rnn_type == "GRU":
             self.rnn = nn.GRU(
-                input_size=self.features_dim,
+                input_size=rnn_input_size,
                 hidden_size=rnn_hidden_size,
                 num_layers=rnn_num_layers,
                 batch_first=True,
             )
         elif rnn_type == "LSTM":
             self.rnn = nn.LSTM(
-                input_size=self.features_dim,
+                input_size=rnn_input_size,
                 hidden_size=rnn_hidden_size,
                 num_layers=rnn_num_layers,
                 batch_first=True,
             )
         else:
             self.rnn = nn.RNN(
-                input_size=self.features_dim,
+                input_size=rnn_input_size,
                 hidden_size=rnn_hidden_size,
                 num_layers=rnn_num_layers,
                 batch_first=True,
@@ -285,7 +299,7 @@ class EPLHbNetwork(QNetwork):
             def forward(self, x):
                 return x.mean(dim=1, keepdim=True)
         self.eplhb = nn.Sequential(
-            nn.Linear(rnn_hidden_size + self.action_space.n, self.eplhb_hidden_dim),
+            nn.Linear(rnn_hidden_size + 1, self.eplhb_hidden_dim),
             nn.ReLU(),
             MeanLayer()
         )
@@ -296,8 +310,11 @@ class EPLHbNetwork(QNetwork):
                 nn.init.xavier_uniform_(layer.weight, gain=0.1)  # Small gain
                 nn.init.constant_(layer.bias, 0.0)
         
-        # Add input normalization layer
-        self.input_norm = nn.LayerNorm(int(rnn_hidden_size + self.action_space.n))
+        # Add input normalization layer for RNN input
+        self.input_norm = nn.LayerNorm(int(rnn_input_size))
+        
+        # Add separate normalization layer for EPLHb input
+        self.eplhb_input_norm = nn.LayerNorm(int(rnn_hidden_size + 1))
 
         # placeholder for hidden state; will be (num_layers, batch, hidden_size)
         self._h = None
@@ -311,7 +328,9 @@ class EPLHbNetwork(QNetwork):
         # 1) extract features
         features = self.extract_features(obs, self.features_extractor)
         # 2) add time-dim: (batch, seq=1, feat_dim)
-        rnn_in = features.unsqueeze(1)
+        rnn_in = self.input_projection(features)
+        rnn_in = self.input_norm(rnn_in)
+        rnn_in = rnn_in.unsqueeze(1)
 
         # 3) if this is the very first call (or after reset), init hidden
         if self._h is None or self._h.size(1) != obs.size(0):
@@ -335,7 +354,9 @@ class EPLHbNetwork(QNetwork):
         # 1) extract features
         features = self.extract_features(obs, self.features_extractor)
         # 2) add time-dim: (batch, seq=1, feat_dim)
-        rnn_in = features.unsqueeze(1)
+        rnn_in = self.input_projection(features)
+        rnn_in = self.input_norm(rnn_in)
+        rnn_in = rnn_in.unsqueeze(1)
 
         # 3) if this is the very first call (or after reset), init hidden
         if self._h is None or self._h.size(1) != obs.size(0):
@@ -353,11 +374,12 @@ class EPLHbNetwork(QNetwork):
         # 6) squash seq dim and feed through your MLP head (why not last embed as input?)
         out = out.squeeze(1)            # (batch, hidden)
         q_out = self.post_rnn(out)       # (batch, num_actions)
+        chosen_action = q_out.argmax(dim=1, keepdim=True)  # (batch, 1)
 
-        # 7) concat last embed and q_out to feed to eplhb
-        concat = th.cat([last_embed, q_out], dim=-1)
+        # 7) concat last embed and the chosen action to feed to eplhb
+        concat = th.cat([last_embed, chosen_action], dim=-1)
         # Normalize input to prevent scale issues
-        concat_norm = self.input_norm(concat)
+        concat_norm = self.eplhb_input_norm(concat)
         eplhb_out = self.eplhb(concat_norm).squeeze(-1)
         # Clamp output to prevent extreme values
         # eplhb_out = th.clamp(eplhb_out, min=-10.0, max=10.0)

@@ -52,10 +52,10 @@ pid_params = {
     "learning_rate": 1e-3,
     "eplhb_lr": 1e-2,
     "coeff_lr": 0.0,
-    "initial_eplhb_coeff": -1.0,
+    "initial_eplhb_coeff": -0.3,
 
     "rnn_type": "GRU",  # Options: "RNN", "GRU", "LSTM". Change as needed.
-    "l2_lambda": 1e-6 ,  # L2 regularization strength for EPLHb weights
+    "l2_lambda": 0.0,  # L2 regularization strength for EPLHb weights
 
     "replay_memory_size": session_params["buffer_size"],
     "batch_size": session_params["batch_size"],
@@ -65,7 +65,7 @@ pid_params = {
     "train_freq": 1,
     "target_update_interval": 10,
     "initial_eps": 0.1,
-    "exploration_fraction": 0.001,
+    "exploration_fraction": 0.5,
     "minimum_eps": 0.05,
     "learning_starts": 1000,
     "inner_size": 64,
