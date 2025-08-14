@@ -30,7 +30,7 @@ seed = 12242
 # ============================================================================
 operant_session_params = {
     "pairing":          'reward',
-    "num_trials":       2,
+    "num_trials":       1000,
     "pre_steps":        10,           # 1 s @ 100 ms
     "post_steps":       40,           # 5 s @ 100 ms
     "enl_duration":     (2.0, 4.0),   # seconds
@@ -90,7 +90,7 @@ operant_pid_params = {
 # ============================================================================
 gym_env_params = {
     "env_name": "CliffWalking-v0",  # Change to "CliffWalking-v0" or any Gymnasium env
-    "num_episodes": 2,
+    "num_episodes": 200,
     "max_steps": 500,
     "warmup_steps": 10000,
     "train_every_n_steps": 100,  # You can adjust this value
@@ -655,7 +655,8 @@ def transfer_weights(source_model, target_model, use_projection=True):
             print("✓ EPLHb coefficient transferred successfully")
 
 
-def save_and_plot_results(source_recorder, all_total_rewards, source_env_type, target_env_type, source_env_params,
+def save_and_plot_results(env_type, env_params, pid_params,
+                        recorder=None, reward_history=None, 
                         save=True, plot=True):
     """Save results and generate plots"""
     print(f"\n{'='*60}")
@@ -668,52 +669,52 @@ def save_and_plot_results(source_recorder, all_total_rewards, source_env_type, t
         timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         
         # Save source environment results
-        if source_recorder:
+        if recorder:
             import pickle
-            source_filename = f"{timestamp}-{source_env_type}_results.pkl"
+            source_filename = f"{timestamp}-{env_type}_results.pkl"
             # Store both params and recorder
             results = {
-                "session_params": source_env_params,
-                "pid_params":     operant_pid_params,
-                "recorder":       source_recorder,
-                "seed":           operant_pid_params["seed"],
+                "session_params": env_params,
+                "pid_params":     pid_params,
+                "recorder":       recorder,
+                "seed":           pid_params["seed"],
             }
 
             # Save everything
-            with open(f"PID-results/{timestamp}-{source_env_type}_results.pkl", "wb") as f:
+            with open(f"PID-results/{timestamp}-{env_type}_results.pkl", "wb") as f:
                 pickle.dump(results, f)
-            print(f"Saved source environment results to {source_filename}")
+            print(f"Saved environment results to {source_filename}")
         
         # Save target environment results
-        if all_total_rewards is not None:
+        if reward_history is not None:
             # Save as pickle file
             results = {
-                "session_params": target_env_params,
-                "pid_params":     target_pid_params,
+                "session_params": env_params,
+                "pid_params":     pid_params,
                 "recorder":       None,
-                "seed":           target_pid_params["seed"],
+                "seed":           pid_params["seed"],
             }
-            with open(f"PID-results/{timestamp}-{target_env_type}_results.pkl", "wb") as f:
+            with open(f"PID-results/{timestamp}-{env_type}_results.pkl", "wb") as f:
                 pickle.dump(results, f)
-            print(f"Saved target environment results to {timestamp}-{target_env_type}_results.pkl")
+            print(f"Saved environment results to {timestamp}-{env_type}_results.pkl")
     
     if plot:
         # Plot source environment results
-        if source_env_type == 'operant' and source_recorder:
+        if env_type == 'operant' and recorder:
             print("\n--- Plotting results from Operant Task ---")
-            plot_figure(source_recorder, td_error_type='internal', dt=source_env_params["dt"], show=True,
-                    pre_steps=source_env_params["pre_steps"], post_steps=source_env_params["post_steps"])
+            plot_figure(recorder, td_error_type='internal', dt=env_params["dt"], show=True,
+                    pre_steps=env_params["pre_steps"], post_steps=env_params["post_steps"])
         
         # Plot target environment results
-        if all_total_rewards is not None:
+        if reward_history is not None:
             print("\n--- Plotting results from Target Environment ---")
             import matplotlib.pyplot as plt
 
             plt.figure(figsize=(12, 6))
-            plt.plot(all_total_rewards, label='Total Reward per Episode')
+            plt.plot(reward_history, label='Total Reward per Episode')
             plt.xlabel('Episode')
             plt.ylabel('Total Reward')
-            plt.title(f'{target_env_type.title()} Transfer Learning Performance')
+            plt.title(f'{env_type.title()} Transfer Learning Performance')
             plt.legend()
             plt.grid(True)
             plt.show()
@@ -758,7 +759,7 @@ def run_transfer_learning():
         print("Source environment training skipped (not operant)")
 
     # Plot results from source environment
-    save_and_plot_results(source_recorder, None, transfer_params['source_env'], transfer_params['target_env'], source_env_params, save=False, plot=True)
+    save_and_plot_results(transfer_params['source_env'], source_env_params, source_pid_params, recorder=source_recorder, save=False, plot=True)
     
     # ============================================================================
     # PHASE 2: TRANSFER WEIGHTS TO TARGET MODEL
@@ -787,14 +788,15 @@ def run_transfer_learning():
         print("Target environment training skipped (not gym)")
 
     # Plot results from target environment
-    save_and_plot_results(None, all_total_rewards, transfer_params['target_env'], transfer_params['target_env'], target_env_params, save=False, plot=True)
+    save_and_plot_results(transfer_params['target_env'], target_env_params, target_pid_params, reward_history=all_total_rewards, save=False, plot=True)
     
     # ============================================================================
     # PHASE 4: SAVE RESULTS AND PLOT
     # ============================================================================
-    save_and_plot_results(source_recorder, all_total_rewards, 
-                         transfer_params['source_env'], transfer_params['target_env'], 
-                         source_env_params)
+    # Save source environment results
+    save_and_plot_results(transfer_params['source_env'], source_env_params, source_pid_params, recorder=source_recorder, save=True, plot=False)
+    # Save target environment results
+    save_and_plot_results(transfer_params['target_env'], target_env_params, target_pid_params, reward_history=all_total_rewards, save=True, plot=False)
     
     print("\n🎉 Transfer learning complete!")
     print(f"Successfully transferred from {transfer_params['source_env']} to {transfer_params['target_env']}")
