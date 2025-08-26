@@ -283,8 +283,8 @@ class EPLHb_DQN(OffPolicyAlgorithm):
 
                 # Update the gains
                 self.kp = kp
-                self.ki = ki
-                self.kd = kd
+                self.ki = ki # normally is 0
+                self.kd = kd # normally is 0
                 target = target_current_q_values + kp * self.p_update + ki * self.i_update + kd * self.d_update
 
             # Forward pass to get Q and EPLHb heads
@@ -301,6 +301,9 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             td_error = q_taken - target.squeeze(-1)
             base_loss = F.smooth_l1_loss(q_taken, target.squeeze(-1))
 
+            # auxiliary loss to see whether EPLHb is similar to d_update value
+            d_update_loss = F.smooth_l1_loss(eplhb_out, self.d_update)
+
             # L2 regularization for EPLHb weights
             l2_penalty = 0.0
             if hasattr(self.policy.q_net, 'eplhb') and hasattr(self.policy.q_net.eplhb[0], 'weight'):
@@ -311,7 +314,7 @@ class EPLHb_DQN(OffPolicyAlgorithm):
 
             # final joint loss
             final_loss = (
-                base_loss + (noise * td_error).mean() + l2_penalty
+                base_loss + (noise * td_error).mean() + l2_penalty + d_update_loss
             )
             losses.append(final_loss.item())
 

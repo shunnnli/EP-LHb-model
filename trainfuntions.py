@@ -61,12 +61,12 @@ def setup_model(env, pid_params, device="cpu"):
 
         # Set up the model
     model = EPLHb_DQN(
-            pid_params['d_tau'],
-            pid_params['tabular_d'],
-            gain_adapter,
+        pid_params['d_tau'],
+        pid_params['tabular_d'],
+        gain_adapter,
 
         policy="MlpPolicy",
-            env=env,
+        env=env,
         learning_rate=pid_params['learning_rate'],
         buffer_size=pid_params['buffer_size'],
         batch_size=pid_params['batch_size'],
@@ -90,7 +90,7 @@ def setup_model(env, pid_params, device="cpu"):
         optimal_model=None,
         policy_evaluation=pid_params['policy_evaluation'],
 
-            replay_buffer_class=OnlineReplayBuffer,
+        replay_buffer_class=OnlineReplayBuffer,
     )
     
     # Set additional parameters
@@ -101,6 +101,8 @@ def setup_model(env, pid_params, device="cpu"):
     gain_adapter.set_model(model)
     
     return model, gain_adapter
+
+
 
 
 
