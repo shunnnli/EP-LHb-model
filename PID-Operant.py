@@ -5,7 +5,13 @@ if repo_path not in sys.path:
     sys.path.insert(0, repo_path)
 # from TabularPID.AgentBuilders.DQNBuilder import build_PID_DQN # not working for me
 from stable_baselines3.common.logger import configure
-from stable_baselines3.common.buffers import OnlineReplayBuffer
+from stable_baselines3.common.buffers import ExtendedReplayBuffer
+from stable_baselines3.common.type_aliases import (
+    DictReplayBufferSamples,
+    DictRolloutBufferSamples,
+    ReplayBufferSamples,
+    RolloutBufferSamples,
+)
 from TabularPID.Agents.DQN.DQN import PID_DQN
 from TabularPID.Agents.DQN.DQN_gain_adapter import NoGainAdapter, SingleGainAdapter, DiagonalGainAdapter, NetworkGainAdapter
 
@@ -19,6 +25,9 @@ import torch.optim as optim
 from OperantGym import OperantLearning
 from plotfunctions import plot_figure
 from recorder import SessionRecorder
+from types import SimpleNamespace
+
+import random
 
 # --------------------
 # Hyperparameters
@@ -32,7 +41,7 @@ session_params = {
     "tau_on":           0.01,         # 10 ms
     "tau_off":          0.1,          # 100 ms
 
-    "omission_prob":    0.3,
+    "omission_prob":    0,
     "action_cost":      0.1,
     "enl_penalty":      0.2,
     "enl_threshold":    200,          # for accumulated & consecutive ENL licks
@@ -42,10 +51,13 @@ session_params = {
     "gamma":            0.95,         # discount factor
     "batch_training":   False,
     "batch_size":       64 if False else 1,
+    "max_batch_size":   10,           # max batch size for training
+    "num_recent":       10,            # how many recent trials to use for training
     "buffer_size":      100_000 if False else 1,
     "dt":               0.1,          # 100 ms
-}
 
+    "continual_learning": True,     
+}
 
 # PID-DQN parameters
 pid_params = {
@@ -75,11 +87,11 @@ pid_params = {
     "dump_buffer": False,
     "is_double": False,
     "policy_evaluation": False,
-    "seed": 1232,
+    "seed": 1235,
 }
 
 # Other params
-replaybuffer = OnlineReplayBuffer
+replaybuffer = ExtendedReplayBuffer
 max_trial_steps = session_params["pre_steps"] + session_params["post_steps"]
 
 # --------------------
@@ -91,6 +103,7 @@ env = OperantLearning(
     enl_duration=session_params["enl_duration"],
     action_cost=session_params["action_cost"],
     enl_penalty=session_params["enl_penalty"],
+    continual_learning=session_params["continual_learning"],
     detection_delay=1,
 )
 
@@ -103,6 +116,9 @@ gain_adapter = SingleGainAdapter(
     beta=pid_params["beta"],
     meta_lr=pid_params["meta_lr"],
     epsilon=pid_params["epsilon_gain"],
+    meta_lr_p=-1,
+    meta_lr_d=0,
+    meta_lr_i=-1,
 )
 
 # Define policy kwargs (network architecture + optimizer)
@@ -110,6 +126,7 @@ policy_kwargs = dict(
     net_arch=[pid_params["inner_size"], pid_params["inner_size"]],
     optimizer_class=optim.Adam,
     with_RNN_layer=True,
+    rnn_type=pid_params["rnn_type"], # RNN, GRU, LSTM
 )
 
 # Prevent CUDA from being used (patch)
@@ -119,7 +136,6 @@ for _name in dir(_dp):
     cls = getattr(_dp, _name)
     if isinstance(cls, type) and hasattr(cls, "jump_start_cuda"):
         cls.jump_start_cuda = lambda self: None
-
 
 # Set up the model
 model = PID_DQN(
@@ -156,7 +172,6 @@ model = PID_DQN(
     # Use authors replay buffer
     replay_buffer_class=replaybuffer,
 )
-orig_buffer = model.replay_buffer # save the original big replay buffer
 
 # Link adapter to model
 gain_adapter.set_model(model)
@@ -173,7 +188,7 @@ max_num_iters = 40000
 decay_trials = int(pid_params["exploration_fraction"] * max_num_iters)
 
 # Set up buffer
-model.replay_buffer = OnlineReplayBuffer(
+model.replay_buffer = ExtendedReplayBuffer(
     buffer_size=10_000, # hold the last 10 000 steps (ie 1000 seconds)
     observation_space=env.observation_space,
     action_space=env.action_space,
@@ -198,9 +213,13 @@ trial_idx = 0
 eps = pid_params["initial_eps"]
 # — prime the recorder so rec._prev_obs isn't None on step 0 —
 recorder._prev_obs = obs
+final_indices = []
 
 while trial_idx < num_trials:
     print(f"Trial {trial_idx+1}/{num_trials}, ε={eps:.3f}")
+
+    # update env.trial count
+    env.trial_count = trial_idx
 
     # reset RNN state
     model.policy.q_net.reset_hidden(batch_size=session_params["batch_size"])
@@ -208,6 +227,7 @@ while trial_idx < num_trials:
     trial_timesteps = 0
     enl_count = 0
     z_prev = 0.0
+    trial_inds = []
     
     # run one trial
     while not done:
@@ -273,6 +293,10 @@ while trial_idx < num_trials:
                                 z=np.array([z_update], dtype=np.float32),
                                 )
         
+        # record current trial idx within buffer
+        idx = (model.replay_buffer.pos - 1) % model.replay_buffer.buffer_size
+        trial_inds.append(idx)
+        
         # record every timestep in the session trace
         recorder.record_env_step(trial_idx, action, reward, next_obs, info, model=model)
         # update obs, z_prev
@@ -284,12 +308,25 @@ while trial_idx < num_trials:
         frac = min(1.0, trial_idx / max(1, decay_trials))
         eps  = eps_start + frac * (eps_end - eps_start)
 
-    # 4) do a single training step
-    model.train(batch_size=batch_size, seq_len=trial_timesteps, gradient_steps=gradient_steps)
+    # bootstrapping: collect final step indices
+    final_indices.append(trial_inds[-1])
+    # make dynamic to adjust for batch size vs. available trials to pull from
+    k = min(len(final_indices), session_params["max_batch_size"])
+    n_recent = min(len(final_indices), session_params["num_recent"])
+    recent = final_indices[-n_recent:]
+    remaining = final_indices[:-n_recent]
+    needed = k - len(recent)
+    if needed > 0 and remaining:
+        sampled = random.sample(remaining, min(needed, len(remaining)))
+    else:
+        sampled = []
+    batch_idxs = recent + sampled
 
-    # 5) restore original buffer so you keep accumulating long-term experience
-    model.replay_buffer = orig_buffer
-
+    print(f"k={k}, recent={recent}, sampled={sampled}")
+    print("batch_idxs:", batch_idxs)
+    
+    # train
+    model.train(gradient_steps=gradient_steps, batch_idxs=batch_idxs)
 
 # --------------------
 # Plot Summary Figure

@@ -248,6 +248,45 @@ def plotLine(unique_omits, performance, ax=None):
 
     return ax
 
+
+def derivative_likelihood(eplhb_traces, td_traces=None, d_update=None, method="correlation"):
+    """
+    Compute trial-wise correlation between EP-LHb traces and the derivative of TD traces.
+
+    Args:
+        eplhb_traces (array-like, shape (num_trials, timesteps)): EP-LHb values.
+        td_traces (array-like, optional): TD values, shape (num_trials, timesteps).
+        d_update (array-like, optional): Precomputed derivative of TD, shape (num_trials, timesteps).
+        method (str): Currently only supports "correlation".
+
+    Returns:
+        np.ndarray: Correlation coefficients, shape (num_trials,)
+    """
+    eplhb_traces = np.array(eplhb_traces)
+
+    if d_update is not None:  
+        # if d_update available, use it directly
+        td_derivative = np.array(d_update)
+    elif td_traces is not None:
+        td_traces = np.array(td_traces)
+        # numerical derivative along time axis
+        td_derivative = np.diff(td_traces, prepend=td_traces[:, [0]], axis=1)
+    else:
+        raise ValueError("Either td_traces or d_update must be provided.")
+
+    if method == "correlation":
+        num_trials = eplhb_traces.shape[0]
+        corrs = np.empty(num_trials)
+        for i in range(num_trials):
+            ep = eplhb_traces[i]
+            td = td_derivative[i]
+            if np.std(ep) == 0 or np.std(td) == 0:
+                corrs[i] = np.nan  # avoid division by zero
+            else:
+                corrs[i] = np.corrcoef(ep, td)[0, 1]
+        return corrs
+    else:
+        raise NotImplementedError(f"Method '{method}' not implemented.")
     
 
 
@@ -300,6 +339,7 @@ def load_recorder_data(recorder, td_error_type='external',
     licks     = np.array(recorder.licks)[1:]
     tones     = np.array(recorder.tones)[1:]
     omissions = np.array(recorder.omissions)[1:]
+    levels    = np.array(recorder.levels)[1:]
 
     rewards = np.array(recorder.rewards)[1:]
     losses  = np.array(recorder.losses)[1:]
@@ -332,6 +372,7 @@ def load_recorder_data(recorder, td_error_type='external',
     i_ki_history = [i_update_step[trial_idx == t].mean() for t in range(num_trials)]
     d_kd_history = [d_update_step[trial_idx == t].mean() for t in range(num_trials)]
 
+
     # Align cue_licks and TD errors to the cue
     if td_error_type == 'external':
         error = td_errors
@@ -343,6 +384,9 @@ def load_recorder_data(recorder, td_error_type='external',
     cue_error   = get_traces(error, tones, pre_steps, post_steps)
     cue_pid_error = get_traces(pid_error, tones, pre_steps, post_steps)
     cue_omissions = get_traces(omissions, tones, pre_steps, post_steps)
+    cue_levels = np.array([int((levels[trial_idx == t] == 1).any()) for t in range(num_trials)])
+
+    cue_d_update_step = get_traces(d_update_step, tones, pre_steps, post_steps)
 
     # Check if we have the correct number of trials
     expected_trials = num_trials
@@ -403,6 +447,10 @@ def load_recorder_data(recorder, td_error_type='external',
         tds_TD = np.array(tds_TD)
     if not isinstance(cue_omissions, np.ndarray):
         cue_omissions = np.array(cue_omissions)
+    if not isinstance(cue_d_update_step, np.ndarray):
+        cue_d_update_step = np.array(cue_d_update_step)
+    if not isinstance(cue_levels, np.ndarray):
+        cue_levels = np.array(cue_levels)
 
     # time axis from -1s to +2s at 0.1s steps
     dt = 0.1
@@ -441,6 +489,8 @@ def load_recorder_data(recorder, td_error_type='external',
         'cue_licks': cue_licks,
         'cue_error': cue_error,
         'cue_omissions': cue_omissions,
+        'cue_levels': cue_levels,
+        'cue_d_update_step': cue_d_update_step,
         'trial_anticipatory_licks': trial_anticipatory_licks,
         'trial_TD_amplitude': trial_TD_amplitude,
         'trial_pid_TD_amplitude': trial_pid_TD_amplitude,
@@ -484,7 +534,7 @@ def plot_figure(recorder, td_error_type='external',
 
     # Plotting
     fig = plt.figure(figsize=(14, 8))
-    gs  = GridSpec(3, 3, figure=fig, width_ratios=[1, 1, 1.2], height_ratios=[1, 1, 0.7], wspace=0.2, hspace=0.4)
+    gs  = GridSpec(3, 4, figure=fig, width_ratios=[1, 1, 1.2, 0.05], height_ratios=[1, 1, 0.7], wspace=0.3, hspace=0.4)
 
     # top‐left: Reward per trial
     ax0 = fig.add_subplot(gs[0, 0])
@@ -519,12 +569,19 @@ def plot_figure(recorder, td_error_type='external',
         lick_times = output_dict['t_axis'][output_dict['cue_licks'][i] == 1]
         cur_omissions = output_dict['t_axis'][output_dict['cue_omissions'][i] == 1]
         has_omission = len(cur_omissions) > 0
+        has_level = output_dict['cue_levels'][i] == 1
         if has_omission:
             ax2.scatter(lick_times, np.ones_like(lick_times)*(i+1),
                         color='tab:pink', s=10, marker='o', alpha=0.8, edgecolor='none')
         else:
             ax2.scatter(lick_times, np.ones_like(lick_times)*(i+1),
                         color='tab:blue', s=10, marker='o', alpha=0.8, edgecolor='none')
+            
+    left_x = output_dict['t_axis'][0]
+    for i in range(output_dict['num_trials']):
+        if output_dict['cue_levels'][i] == 1:
+            ax2.plot([left_x + 0.05, left_x + 0.1], [i + 1, i + 1], color='red', lw=1, clip_on=False)
+
     # mark cue window
     ax2.fill_betweenx([0, output_dict['num_trials']+1], 0, 0.5, color='tab:orange', alpha=0.2, edgecolor='None')
     ax2.set_title(f"Lick raster")
@@ -580,6 +637,17 @@ def plot_figure(recorder, td_error_type='external',
     ax5.set_ylabel("Amplitude")
     ax5.legend(loc='upper left', fontsize=10, frameon=False)
 
+
+    # plot correlation of EPLHb output and TD error
+    if recorder.eplhb and hasattr(recorder, 'eplhb_out'):
+        ax6 = fig.add_subplot(gs[0, 2])
+        eplhb_corr = derivative_likelihood(output_dict['cue_EPLHb_output'], td_traces = output_dict['cue_error'], d_update=output_dict['cue_d_update_step'], method="correlation")
+        ax6.plot(output_dict['trial_axis'], eplhb_corr, color='tab:green', label='EPLHb Correlation')
+        ax6.set_title("EPLHb Correlation with TD Error")
+        ax6.set_xlabel("Trial")
+        ax6.set_ylabel("Correlation Coefficient")
+        ax6.legend(loc='upper left', fontsize=10, frameon=False)
+
     # bottom middle: FFT
     # ax5 = fig.add_subplot(gs[2, 1])
     # td_freqs, td_magnitudes = fft(td_error = tds_TD, sample_rate = 50)
@@ -591,9 +659,11 @@ def plot_figure(recorder, td_error_type='external',
     # ax5.set_title("FFT of TD Errors")
     # ax5.legend(loc='upper right', fontsize=10, frameon=False)
 
+    
+
     # the new heatmap, spanning both rows in column 3
     ax_heat = fig.add_subplot(gs[:, 2])
-    data = output_dict['cue_error'] 
+    data = output_dict['cue_error']
     im = ax_heat.imshow(
         data,
         aspect='auto',
@@ -610,11 +680,16 @@ def plot_figure(recorder, td_error_type='external',
     fig.colorbar(im, ax=ax_heat, orientation='vertical', label='TD Error')
 
 
+
+
     # Tighten layout and show
     fig.subplots_adjust(left=0.05, right=0.98, top=0.95, bottom=0.07)
 
     # Show the figure if requested
-    if show: plt.show()
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
 
     # Save the figure if requested
     if save: fig.savefig(save_path, dpi=300, bbox_inches='tight')

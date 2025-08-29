@@ -317,9 +317,9 @@ class ReplayBuffer(BaseBuffer):
             all_batch_inds = [np.arange(i, i + jump) for i in range(0, self.pos, jump)]
         return [self._get_samples(batch_inds, env=env) for batch_inds in all_batch_inds]
 
-    def _get_samples(self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None) -> ReplayBufferSamples:
-        # Sample randomly the env idx
-        env_indices = np.random.randint(0, high=self.n_envs, size=(len(batch_inds),))
+    def _get_samples(self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None, env_indices: Optional[np.ndarray] = None) -> ReplayBufferSamples:
+        if env_indices is None:
+            env_indices = np.random.randint(0, high=self.n_envs, size=(len(batch_inds),))
 
         if self.optimize_memory_usage:
             next_obs = self._normalize_obs(self.observations[(batch_inds + 1) % self.buffer_size, env_indices, :], env)
@@ -360,8 +360,6 @@ class ReplayBuffer(BaseBuffer):
         if kd is not None:
             self.kd[indices[0].cpu().numpy(), indices[1].cpu().numpy()] = kd.cpu().numpy().squeeze()
         
-
-# Replay buffer to do online updates
 class OnlineReplayBuffer(ReplayBuffer):
     def __init__(
         self,
@@ -445,6 +443,92 @@ class OnlineReplayBuffer(ReplayBuffer):
                 elif arr.ndim == 2:
                     data[field] = arr[np.newaxis, ...]
         return SimpleNamespace(**data)
+    def update(self, indices, zs=None, ds=None):
+        if zs is not None:
+            self.zs[indices] = zs.cpu().numpy()
+        if ds is not None:
+            self.ds[indices] = ds.cpu().numpy()
+
+
+
+
+
+# Extended Replay buffer to do online updates with higher batch size
+class ExtendedReplayBuffer(ReplayBuffer):
+    def __init__(
+        self,
+        buffer_size: int,
+        observation_space,
+        action_space,
+        device: Union[th.device, str] = "auto",
+        n_envs: int = 1,
+        optimize_memory_usage: bool = False,
+        handle_timeout_termination: bool = True,
+    ):
+        super().__init__(
+            buffer_size,
+            observation_space,
+            action_space,
+            device=device,
+            n_envs=n_envs,
+            optimize_memory_usage=optimize_memory_usage,
+            handle_timeout_termination=handle_timeout_termination,
+        )
+        # parallel arrays for d & z
+        self.ds = np.zeros((buffer_size, 1), dtype=np.float32)
+        self.zs = np.zeros((buffer_size, 1), dtype=np.float32)
+
+    def add(
+        self,
+        obs: np.ndarray,
+        next_obs: np.ndarray,
+        action: np.ndarray,
+        reward: np.ndarray,
+        done: bool,
+        infos: list,
+        d: np.ndarray,
+        z: np.ndarray,
+    ) -> None:
+        # write obs/next_obs/etc.
+        super().add(obs, next_obs, action, reward, done, infos)
+        idx = (self.pos - 1) % self.buffer_size
+        self.ds[idx, 0] = float(np.asarray(d).flatten()[0])
+        self.zs[idx, 0] = float(np.asarray(z).flatten()[0])
+
+    def sample(
+        self,
+        batch_idxs: List,
+        env=None,
+    ):
+        # 1) Get idxs to sample
+        idxs = np.array(batch_idxs, dtype=int)
+        base_batch = self._get_samples(idxs, env=env)
+
+        # 2) Slice custom fields
+        batch_ds = th.as_tensor(self.ds[idxs], device=self.device)
+        batch_zs = th.as_tensor(self.zs[idxs], device=self.device)
+
+        # 3) Build data dict from namedtuple
+        data = {field: getattr(base_batch, field) for field in base_batch._fields}
+        data['ds'] = batch_ds
+        data['zs'] = batch_zs
+        data['indices'] = idxs
+
+        # 4) Ensure correct shapes for batch and sequence
+        # Determine batch (B) and sequence length (L)
+        B = len(idxs)
+        L = 1
+
+        # Observations and next_observations -> [B, L, obs_dim]
+        for field in ('observations', 'next_observations'):
+            data[field] = data[field].reshape(B, L, -1)
+
+        # Actions, rewards, dones, ds, zs -> [B, L]
+        for field in ('actions', 'rewards', 'dones', 'ds', 'zs'):
+            data[field] = data[field].reshape(B, L)
+
+        return SimpleNamespace(**data)
+    
     def update(self, indices, zs=None, ds=None):
         if zs is not None:
             self.zs[indices] = zs.cpu().numpy()

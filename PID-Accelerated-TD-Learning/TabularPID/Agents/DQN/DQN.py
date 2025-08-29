@@ -19,7 +19,6 @@ from TabularPID.OptimalRates.EvaluateBuffer import run_simulation
 
 SelfDQN = TypeVar("SelfDQN", bound="PID_DQN")
 
-
 class EPLHb_DQN(OffPolicyAlgorithm):
     """
     Deep Q-Network (DQN)
@@ -624,7 +623,7 @@ class EPLHb_DQN(OffPolicyAlgorithm):
 
     def monte_carlo_rollout(self, action):
         return run_simulation(self.optimal_model, deepcopy(self.env.envs[0]), action, self.gamma, self.seed)
-    
+
 
 class PID_DQN(OffPolicyAlgorithm):
     """
@@ -773,6 +772,8 @@ class PID_DQN(OffPolicyAlgorithm):
         self.previous_i_update, self.i_update = None, None
         self.previous_d_update, self.d_update = None, None
         self.kp, self.ki, self.kd = None, None, None
+        self.full_p_update, self.full_i_update, self.full_d_update = None, None, None
+        self.full_kp, self.full_ki, self.full_kd = None, None, None
 
         self.policy.jump_start_cuda()
 
@@ -817,8 +818,11 @@ class PID_DQN(OffPolicyAlgorithm):
                 update_size = 50000
                 update_size = min(update_size, self.replay_buffer.size())
 
-                replay_data = self.replay_buffer.sample(update_size, env=self._vec_normalize_env)  # type: ignore[union-attr]
-                
+                replay_data = self.replay_buffer.sample(
+                        batch_idxs=[0],
+                        env=self._vec_normalize_env,
+                    )
+
                 self.gain_adapter.adapt_gains(replay_data)
 
             # Update the D network
@@ -832,17 +836,17 @@ class PID_DQN(OffPolicyAlgorithm):
         self.exploration_rate = self.exploration_schedule(self._current_progress_remaining)
         self.logger.record("rollout/exploration_rate", self.exploration_rate)
 
-    def train(self, gradient_steps: int, batch_size: int = 100, seq_len: int = None) -> None:
+    def train(self, gradient_steps: int, batch_idxs: int = 0) -> None:
         # Switch to train mode (this affects batch norm / dropout)
         self.policy.set_training_mode(True)
         # Update learning rate according to schedule
         self._update_learning_rate(self.policy.optimizer)
 
-        # If we have an RNN AND the user passed seq_len, do truncated BPTT
+        # If we have an RNN, do truncated BPTT
         is_recurrent = hasattr(self.policy.q_net, "reset_hidden")
-        use_bptt   = is_recurrent and seq_len is not None
+        use_bptt   = is_recurrent
         if use_bptt:
-            return self._train_recurrent(gradient_steps, batch_size, seq_len)
+            return self._train_recurrent(gradient_steps, batch_idxs)
 
         losses = []
         for _ in range(gradient_steps):
@@ -850,7 +854,7 @@ class PID_DQN(OffPolicyAlgorithm):
             replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)  # type: ignore[union-attr]
 
             with th.no_grad():
-                next_q_values = self.compute_next_q_values(replay_data, batch_size)
+                next_q_values = self.compute_next_q_values(replay_data, len(batch_idxs))
                 # 1-step TD target
                 target_q_values = replay_data.rewards + (1 - replay_data.dones) * self.gamma * next_q_values
 
@@ -878,37 +882,26 @@ class PID_DQN(OffPolicyAlgorithm):
                 self.kp = kp
                 self.ki = ki
                 self.kd = kd
+
                 target = target_current_q_values + kp * self.p_update + ki * self.i_update + kd * self.d_update
 
-            # Forward pass to get Q and EPLHb heads
-            q_pred, _, eplhb_out = self.q_net.forward_full(replay_data.observations)
-            # pick Q for the taken actions
-            q_taken = th.gather(q_pred, dim=1, index=replay_data.actions.long()).squeeze(-1)
+            # if np.random.rand() < 0.005:
+            #     breakpoint()
 
-            # pull out your learnable coeff
-            eplhb_coeff = self.policy.q_net.eplhb_coeff
-            if isinstance(eplhb_coeff, th.nn.Parameter):
-                eplhb_coeff = eplhb_coeff.data.float()
-            else:
-                eplhb_coeff = th.tensor(eplhb_coeff, dtype=th.float32)
-            target += eplhb_coeff * eplhb_out
+            # Get current Q-values estimates
+            current_q_values = self.q_net(replay_data.observations)
 
-            # compute TD-error and base loss
-            td_error = q_taken - target.squeeze(-1)
-            base_loss = F.smooth_l1_loss(q_taken, target.squeeze(-1))
+            # Retrieve the q-values for the actions from the replay buffer
+            current_q_values = th.gather(current_q_values, dim=1, index=replay_data.actions.long())
 
-            # sample a little noise term
-            noise = th.randn_like(td_error)
+            # Compute Huber loss (less sensitive to outliers)
+            loss = F.smooth_l1_loss(current_q_values, target)
+            losses.append(loss.item())
 
-            # final joint loss
-            final_loss = (
-                base_loss + (noise * td_error).mean()
-            )
-            losses.append(final_loss.item())
-
-            # Optimize
+            # Optimize the policy
             self.policy.optimizer.zero_grad()
-            final_loss.backward()
+            loss.backward()
+            # Clip gradient norm
             th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
             self.policy.optimizer.step()
 
@@ -921,7 +914,7 @@ class PID_DQN(OffPolicyAlgorithm):
         self.logger.record("rollout/BRs_L2_norm", th.norm(self.BRs).item() / np.sqrt(self.BRs.shape[0]))
         self.logger.dump(step=self.num_timesteps)
 
-    def _train_recurrent(self, gradient_steps: int, batch_size: int, seq_len: int):
+    def _train_recurrent(self, gradient_steps: int, batch_idxs: List[int]) -> None:
         losses = []
         net    = self.policy.q_net
         tgt    = self.q_net_target
@@ -929,17 +922,20 @@ class PID_DQN(OffPolicyAlgorithm):
         optim  = self.policy.optimizer
 
         for _ in range(gradient_steps):
-            # 1) sample a sequence of length seq_len
             batch = self.replay_buffer.sample(
-                batch_size=batch_size,
+                batch_idxs=batch_idxs,
                 env=self._vec_normalize_env,
-                seq_len=seq_len,
             )
+
+            
+
             obs_seq      = batch.observations          # [B, L, obs_dim]
-            act_seq      = batch.actions.squeeze(-1)   # [B, L]
-            rew_seq      = batch.rewards.squeeze(-1)   # [B, L]
-            done_seq     = batch.dones.squeeze(-1)     # [B, L]
             next_obs_seq = batch.next_observations     # [B, L, obs_dim]
+
+            # New: keep that last dim as your time axis
+            act_seq  = batch.actions     # [B, L]
+            rew_seq  = batch.rewards     # [B, L]
+            done_seq = batch.dones
 
             B, L, obs_dim = obs_seq.shape
 
@@ -955,10 +951,10 @@ class PID_DQN(OffPolicyAlgorithm):
                 d_seq = d_flat.reshape(B, L)
 
             # 3) initialize integrator from buffer
-            z_prev = batch.zs.squeeze(-1)[:, 0]         # [B]
+            z_prev = batch.zs[:, 0]         # [B]
 
             # 4) reset RNN hidden state
-            hidden = net.reset_hidden(batch_size=B, device=self.device)
+            net.reset_hidden(batch_size=B, device=self.device)
 
             # 5) unroll L steps, compute Q‐predictions & PID targets
             q_pred_seq = []
@@ -966,22 +962,21 @@ class PID_DQN(OffPolicyAlgorithm):
 
             for t in range(L):
                 # current Q
-                q_t = net.forward(obs_seq[:, t, :])
+                q_t  = net(obs_seq[:, t, :])            # [B, n_actions]
                 a_t  = act_seq[:, t].unsqueeze(1)        # [B, 1]
                 q_at = q_t.gather(1, a_t).squeeze(1)     # [B]
-
 
                 with th.no_grad():
                     # 1‐step Bellman target
                     q_tp1 = tgt(next_obs_seq[:, t, :]).max(dim=1)[0]
-                    td_target = rew_seq[:, t] + (1 - done_seq[:, t]) * gamma * q_tp1
+                    td    = rew_seq[:, t] + (1 - done_seq[:, t]) * gamma * q_tp1
 
                     # PID gains & smoothers
                     kp, ki, kd, alpha, beta = self.gain_adapter.get_gains(
                         obs_seq[:, t, :], a_t, batch
                     )
 
-                    BR    = td_target - q_at                     # [B]
+                    BR    = td - q_at                     # [B]
                     z_new = beta * z_prev + alpha * BR    # [B]
 
                     p_up  = BR
@@ -990,8 +985,8 @@ class PID_DQN(OffPolicyAlgorithm):
 
                     target_t = q_at + kp * p_up + ki * i_up + kd * d_up  # [B]
 
-                q_pred_seq.append(q_at.unsqueeze(1))     # list of [B,1]
-                target_seq.append(target_t.unsqueeze(1)) # list of [B,1]
+                q_pred_seq.append(q_at.view(-1, 1))    # list of [B,1]
+                target_seq.append(target_t.view(-1, 1)) # list of [B,1]
                 z_prev = z_new
 
                 self.p_update = BR
@@ -1007,31 +1002,21 @@ class PID_DQN(OffPolicyAlgorithm):
             # 6) one‐shot loss over full sequence
             q_pred = th.cat(q_pred_seq, dim=1)         # [B, L]
             target = th.cat(target_seq, dim=1)         # [B, L]
-            target = target.view_as(q_pred)   # reshape target to exactly q_pred's shape
+            target = target.view_as(q_pred)   # reshape target to exactly q_pred’s shape
 
-            # q_pred_seq and target_seq are [B, L], so:
-            td_error_seq = q_pred - target  # shape [B, L]
-            base_loss = F.smooth_l1_loss(q_pred, target) # [B, L]
-            noise_seq = th.randn_like(td_error_seq)
-
-            final_loss = (
-                 base_loss + (noise_seq * td_error_seq).mean()
-            )
+            loss   = F.smooth_l1_loss(q_pred, target)
+            losses.append(loss.item())
 
             optim.zero_grad()
-            final_loss.backward()
+            loss.backward()
             th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
             optim.step()
-            losses.append(final_loss.item())
 
         # 7) logging (same as non‐recurrent)
         self._n_updates += gradient_steps
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/loss",      np.mean(losses))
         self.logger.dump(step=self.num_timesteps)
-
-
-
 
     def compute_next_q_values(self, replay_data, batch_size):
         with th.no_grad():

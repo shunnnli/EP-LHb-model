@@ -26,6 +26,8 @@ class OperantLearning(gym.Env):
                  action_cost: float = 0.1, enl_penalty: float = 0.1,
                  reward_decay: bool = True, reward_decay_time: float = 1.0,
                  render_mode: str = None,
+                 continual_learning: bool = False, change_start: int = 200,
+                 change_interval: int = 50,
                  print_status: bool = False):
         super().__init__()
 
@@ -87,6 +89,15 @@ class OperantLearning(gym.Env):
         self.is_reward = False  # whether any reward has been delivered in current trial
         self.delivered_reward = 0.0  # current delivered reward for observation
 
+        # continual learning parameters
+        self.level = 0
+        self.prev_level = 0
+        self.swap_rewards = False   # False = normal rewards, True = swapped
+        self.change_start = change_start  # start changing levels after this many trials
+        self.change_interval = change_interval
+        self.continual_learning = continual_learning  # whether to enable continual learning
+        self.trial_count = 0
+
         # Fake render mode
         self.render_mode = render_mode
         self._screen = None
@@ -97,6 +108,7 @@ class OperantLearning(gym.Env):
         super().reset(seed=seed)
         self.time = 0
         self.phase = 0
+        self._apply_difficulty()
         self.enl_duration = np.random.randint(self.enl_duration_range[0], self.enl_duration_range[1])  # 2-4s in 100ms steps
         self.lick_buffer = []
         self.cue_on = 0
@@ -125,11 +137,26 @@ class OperantLearning(gym.Env):
         elif self.trial_start == 'cue_start':
             # Return delivered reward, cue status, and licks since last reward
             return np.array([self.delivered_reward, self.cue_on, self.licks_since_reward], dtype=np.float32)
+        
+    def _apply_difficulty(self):
+        """
+        Adjust environment parameters whenever level increases.
+        Currently:
+          - toggles reward swapping
+          - (optional) adjust omission_prob or other difficulty factors
+        """
+        if self.level != self.prev_level:
+            self.prev_level = self.level
+            # Toggle reward swap
+            self.swap_rewards = not self.swap_rewards
+            if self.print_status:
+                print(f"Level-up! New level = {self.level}, swapped rewards = {self.swap_rewards}")
 
     def _reset_trial(self):
         """Reset internal state for next trial after outcome delivery."""
         self.time = 0
         self.phase = 0
+        self._apply_difficulty()
         self.enl_duration = np.random.randint(20, 40)
         self.lick_buffer = []
         self.cue_on = 0
@@ -229,7 +256,11 @@ class OperantLearning(gym.Env):
                 # Check immediate big outcome
                 if len(self.lick_buffer) >= 2 and action == 1 and self.outcome_type is None:
                     self.outcome_type = "big"
-                    raw_outcome = 10 if self.trial_type == "reward" else -10
+                    if self.swap_rewards:
+                        raw_outcome = 2 if self.trial_type == "reward" else -2
+                    else:
+                        raw_outcome = 10 if self.trial_type == "reward" else -10
+
                     # apply omission
                     outcome = 0 if self.omission_trial else raw_outcome
                     reward += outcome
@@ -249,7 +280,11 @@ class OperantLearning(gym.Env):
                 # Check end of response window for small outcome
                 elif self.time >= 20 and self.outcome_type is None:
                     self.outcome_type = "small"
-                    raw_outcome = 2 if self.trial_type == "reward" else -2
+                    if self.swap_rewards:
+                        raw_outcome = 10 if self.trial_type == "reward" else -10
+                    else:
+                        raw_outcome = 2 if self.trial_type == "reward" else -2
+
                     outcome = 0 if self.omission_trial else raw_outcome
                     reward += outcome
                     info = {
@@ -301,6 +336,18 @@ class OperantLearning(gym.Env):
                     self._reset_trial()
         else:
             final_reward = reward
+        
+        # === After trial finishes ===
+        if info.get("done", False) and info.get("outcome") == "trial_end":
+            self.trial_count += 1
+            level_up = False
+            # simple rule: every 50 trials after 200, level up
+            if self.continual_learning and self.trial_count % self.change_interval == 0 and self.trial_count >= self.change_start:
+                self.level += 1
+                level_up = True
+            info["level_up"] = level_up
+        else:
+            info["level_up"] = False
 
         return self._get_obs(), final_reward, terminated, truncated, info
 
@@ -371,7 +418,10 @@ class OperantLearning(gym.Env):
             # Check for big outcome (2+ licks) after cue is off
             if self.cue_on == 0 and len(self.lick_buffer) >= 2 and self.time < 20 and self.outcome_type is None:
                 self.outcome_type = "big"
-                raw_outcome = 10 if self.trial_type == "reward" else -10
+                if self.swap_rewards:
+                        raw_outcome = 2 if self.trial_type == "reward" else -2
+                else:
+                    raw_outcome = 10 if self.trial_type == "reward" else -10
                 outcome = 0 if self.omission_trial else raw_outcome
                 self.phase = 0
                 
@@ -391,7 +441,10 @@ class OperantLearning(gym.Env):
             # Check for small outcome at end of trial (20 steps = 2 seconds)
             elif self.time >= 20 and self.outcome_type is None:
                 self.outcome_type = "small"
-                raw_outcome = 2 if self.trial_type == "reward" else -2
+                if self.swap_rewards:
+                        raw_outcome = 10 if self.trial_type == "reward" else -10
+                else:
+                    raw_outcome = 2 if self.trial_type == "reward" else -2
                 outcome = 0 if self.omission_trial else raw_outcome
                 self.phase = 0
                 
@@ -444,4 +497,16 @@ class OperantLearning(gym.Env):
         # Update the delivered_reward for the observation
         self.delivered_reward = delivered_reward
         self.time += 1
+
+        # === After trial finishes ===
+        if info.get("done", False) and info.get("outcome") == "trial_end":
+            self.trial_count += 1
+            level_up = False
+            if self.continual_learning and self.trial_count % 50 == 0 and self.trial_count >= 200:
+                self.level += 1
+                level_up = True
+            info["level_up"] = level_up
+        else:
+            info["level_up"] = False
+    
         return self._get_obs(), delivered_reward, terminated, truncated, info
