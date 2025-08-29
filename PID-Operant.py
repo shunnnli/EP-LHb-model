@@ -5,7 +5,7 @@ if repo_path not in sys.path:
     sys.path.insert(0, repo_path)
 # from TabularPID.AgentBuilders.DQNBuilder import build_PID_DQN # not working for me
 from stable_baselines3.common.logger import configure
-from stable_baselines3.common.buffers import OnlineReplayBuffer
+from stable_baselines3.common.buffers import ExtendedReplayBuffer
 from stable_baselines3.common.type_aliases import (
     DictReplayBufferSamples,
     DictRolloutBufferSamples,
@@ -91,7 +91,7 @@ pid_params = {
 }
 
 # Other params
-replaybuffer = OnlineReplayBuffer
+replaybuffer = ExtendedReplayBuffer
 max_trial_steps = session_params["pre_steps"] + session_params["post_steps"]
 
 # --------------------
@@ -126,6 +126,7 @@ policy_kwargs = dict(
     net_arch=[pid_params["inner_size"], pid_params["inner_size"]],
     optimizer_class=optim.Adam,
     with_RNN_layer=True,
+    rnn_type=pid_params["rnn_type"], # RNN, GRU, LSTM
 )
 
 # Prevent CUDA from being used (patch)
@@ -187,7 +188,7 @@ max_num_iters = 40000
 decay_trials = int(pid_params["exploration_fraction"] * max_num_iters)
 
 # Set up buffer
-model.replay_buffer = OnlineReplayBuffer(
+model.replay_buffer = ExtendedReplayBuffer(
     buffer_size=10_000, # hold the last 10 000 steps (ie 1000 seconds)
     observation_space=env.observation_space,
     action_space=env.action_space,
