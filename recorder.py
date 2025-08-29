@@ -6,36 +6,6 @@ from stable_baselines3.common.callbacks import BaseCallback
 import numpy as np
 import torch
 
-
-def calculate_sign_index(weight_matrix, pre_neurons=None):
-    '''
-    Weight matrix is of size n_post x n_pre. Therefore, each row represents the weights of a single post-synaptic neuron
-    Thus this function returns the sign index calculated from the weights coming from pre_neurons for each postsynaptic neuron
-    '''
-    if pre_neurons is None:
-        selected_weights = weight_matrix
-    else:
-        selected_weights = weight_matrix[:, pre_neurons]
-    positive_weights = np.sum(selected_weights * (selected_weights > 0), axis=1)
-    negative_weights = -np.sum(selected_weights * (selected_weights < 0), axis=1)
-    
-    return ((negative_weights-positive_weights) / (positive_weights + negative_weights))
-
-def calculate_weights(weight_matrix, pre_neurons=None):
-    '''
-    Weight matrix is of size n_post x n_pre. Therefore, each row represents the weights of a single post-synaptic neuron
-    Thus this function returns the total positive and negative weights coming from pre_neurons for each postsynaptic neuron
-    '''
-    if pre_neurons is None:
-        selected_weights = weight_matrix
-    else:
-        selected_weights = weight_matrix[:, pre_neurons]
-    positive_weights = np.sum(selected_weights * (selected_weights > 0), axis=1)
-    negative_weights = np.sum(selected_weights * (selected_weights < 0), axis=1)
-    
-    return positive_weights.numpy(), negative_weights
-
-
 class SessionRecorder:
     """
     Straight‐up session+training recorder with no SB3 callbacks.
@@ -61,15 +31,17 @@ class SessionRecorder:
         # session‐by‐step logs
         self.td_errors = []
         self.td_pid_errors = []
+        self.kd_d      = []
         self.licks     = []
         self.tones     = []
         self.rewards   = []
         self.losses    = []
-        self.enl_breaks = []
+        self.enl_breaks= []
         self.dones     = []
         self._prev_obs = None
         self.lick_action = lick_action
         self.omissions = []
+        self.levels    = []
         
         # per‐train‐call logs
         self.p  = []
@@ -79,20 +51,13 @@ class SessionRecorder:
         self.ki = []
         self.kd = []
 
-        # For EPLHb output and coeff
-        self.eplhb = False
-        if not hasattr(self, 'eplhb_out'):
-            self.eplhb_out = []
-            self.eplhb_weights = []
-            self.eplhb_sign_index = []
-        if not hasattr(self, 'eplhb_coeff'):
-            self.eplhb_coeff = []
-
-    def record_env_step(self, trial_idx, action, reward, new_obs, info, model=None,
-                        record_sign_index=True, record_eplhb_weight=False):
+    def record_env_step(self, trial_idx, action, reward, new_obs, info, model=None):
         """Call right after env.step(...)"""
-        import numpy as np
-        import torch
+
+        def mean_or_none(x):
+            if x is None: return 0.0
+            arr = x.detach().cpu().numpy()
+            return float(arr.mean())
 
         td = 0.0
         td_pid = 0.0
@@ -134,7 +99,10 @@ class SessionRecorder:
 
                 # PID TD error
                 td_pid_tensor = kp * p + ki * i + kd * d
-                td_pid = td_pid_tensor.mean().item() # take the mean of each batch
+                td_pid = mean_or_none(td_pid_tensor)
+
+                kd_d = mean_or_none(kd*d)
+
 
                 # sanity check: ensure td tensor + PID components = td_pid
                 # td_pid_reconstructed = (kp * (td_tensor) + ki * i + kd * (q_cur - d_val.gather(1, a_t).squeeze(1))).item()
@@ -156,17 +124,16 @@ class SessionRecorder:
         # append
         self.td_errors.append(td)
         self.td_pid_errors.append(td_pid)
+        self.kd_d.append(kd_d)
         self.licks.append(lick_flag)
         self.tones.append(tone_flag)
         self.rewards.append(reward)
         self.dones.append(bool(info.get("done", False)))
         self.omissions.append(omission_flag)
+        self.levels.append(int(info.get("level_up", False)))
 
-        # 4) record PID gains
-        def mean_or_none(x):
-            if x is None: return 0.0
-            arr = x.detach().cpu().numpy()
-            return float(arr.mean())
+
+        
         
         # grab the raw PID‐DQN fields
         p  = getattr(model, "p_update", None)
@@ -189,44 +156,6 @@ class SessionRecorder:
         # 5) record the trial index
         self.trial_idx.append(trial_idx)
 
-        # 6) If model is EPLHb_DQN, record EPLHb output, coeff, and weights
-        if model is not None and hasattr(model, 'policy'):
-            q_net = getattr(model.policy, 'q_net', None)
-            if q_net is not None and hasattr(q_net, 'forward_full') and hasattr(q_net, 'eplhb_coeff'):
-                # Record EPLHb layer weights
-                if hasattr(q_net, 'eplhb'):
-                    self.eplhb = True
-                    # Detach and store the weights of the first and second Linear layers in eplhb_weights and lhbda_weights, respectively
-                    eplhb_weights = q_net.eplhb[0].weight.detach().cpu().numpy().copy() if hasattr(q_net.eplhb[0], 'weight') else None
-                    # Print first 5 weights
-                    # if eplhb_weights is not None and eplhb_weights.shape[0] > 5:
-                    #     print("EPLHb weights (first 5):", eplhb_weights[:5,1])
-                    # else:
-                    #     print("EPLHb weights are not available or too small.")
-                    
-                    if record_sign_index:
-                        # calculate sign index for each LHb neuron
-                        sign_index = calculate_sign_index(eplhb_weights)
-                        self.eplhb_sign_index.append(sign_index)
-                    if record_eplhb_weight:
-                        self.eplhb_weights.append(eplhb_weights) # (32,130)
-                else:
-                    self.eplhb_weights.append(None)
-
-                # Record coeff
-                coeff = q_net.eplhb_coeff
-                self.eplhb_coeff.append(float(coeff.item()) if hasattr(coeff, 'item') else float(coeff))
-
-                # Record output
-                obs_t = torch.as_tensor(new_obs).unsqueeze(0).to(model.device)
-                with torch.no_grad():
-                    result = q_net.forward_full(obs_t)
-                if result is not None and len(result) == 3:
-                    _, _, eplhb_out = result
-                    self.eplhb_out.append(float(eplhb_out.item()) if hasattr(eplhb_out, 'item') else float(eplhb_out))
-                else:
-                    self.eplhb_out.append(None)
-
 
 
 
@@ -244,8 +173,8 @@ class SessionRecorderCallback(BaseCallback):
     """
     def __init__(self, lick_action=1, verbose=0):
         super().__init__(verbose)
-        # Decouples the logger from your env's encoding. 
-        # If you ever change your env so that "lick" is action 2 instead of 1, 
+        # Decouples the logger from your env’s encoding. 
+        # If you ever change your env so that “lick” is action 2 instead of 1, 
         # you just pass lick_action=2 into the callback—no need to rewrite any logging code.
         self.lick_action = lick_action
 
@@ -345,6 +274,7 @@ class SessionRecorderCallback(BaseCallback):
         self.kd.append(kd)
 
         return True
+
 
 class TrialRecorderCallback(BaseCallback):
     """

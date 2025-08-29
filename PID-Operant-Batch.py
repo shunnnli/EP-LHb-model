@@ -18,14 +18,16 @@ from TabularPID.Agents.DQN.DQN_gain_adapter import NoGainAdapter, SingleGainAdap
 
 from OperantGym import OperantLearning
 from plotfunctions import plot_figure
+from summary_plots import plot_pid_results
 from recorder import SessionRecorder
 from types import SimpleNamespace
+
 
 # Base hyperparameters from your original script
 # session_params defined here
 base_session_params = {
     "pairing":          'reward',
-    "num_trials":       200,
+    "num_trials":       100,
     "pre_steps":        10,
     "post_steps":       40,
     "enl_duration":     (2.0, 4.0),
@@ -39,23 +41,23 @@ base_session_params = {
     "gradient_steps":   10,
     "gamma":            0.95,
     "batch_training":   False,
-    "batch_size":       1,
+    "batch_size":       1, 
+    "max_batch_size":   1,   # max replay buffer space
+    "num_recent":       1,   # number of consecutive recent trials to fill replay buffer. ex. 5 num_recent, means 5 random old trials in size 10 replay buffer
     "buffer_size":      1,
     "dt":               0.1,
-
-    # continual learning settings
-    "change_start": 100,  # start changing parameters after this many trials
-    "change_interval": 30,
-    "difficulty_change": "random", # 'none', 'increase', 'decrease', 'random'
-    "pairing_change": False,
+    "continual_learning": True,
+    "change_start":     200,
+    "change_interval":  50,
 }
 
 # pid_params defined here
 base_pid_params = {
     "kp":                   1.0,
     "ki":                   0.0,
-    "kd":                   0.3,
+    "kd":                   0,
     "meta_lr":              0,
+    "meta_lr_d":            0,
     "epsilon_gain":         0.1,
     "alpha":                0.05,
     "beta":                 0.95,
@@ -78,9 +80,6 @@ base_pid_params = {
     "is_double":            False,
     "policy_evaluation":    False,
     "seed":                 26,
-
-    "rnn_type": "GRU",  # Options: "RNN", "GRU", "LSTM". Change as needed.
-    "l2_lambda": 1e-6,  # L2 regularization strength for EPLHb weights
 }
 
 
@@ -111,7 +110,11 @@ def train_once(session_params, pid_params):
         enl_duration=session_params["enl_duration"],
         action_cost=session_params["action_cost"],
         enl_penalty=session_params["enl_penalty"],
-        print_status=False
+        detection_delay=1,
+        continual_learning=session_params["continual_learning"],
+        change_start=session_params["change_start"],
+        change_interval=session_params["change_interval"],
+        printing=False
     )
 
     gain_adapter = SingleGainAdapter(
@@ -122,13 +125,13 @@ def train_once(session_params, pid_params):
         beta=pid_params["beta"],
         meta_lr=pid_params["meta_lr"],
         epsilon=pid_params["epsilon_gain"],
+        meta_lr_d=pid_params["meta_lr_d"],
     )
 
     policy_kwargs = dict(
         net_arch=[pid_params["inner_size"], pid_params["inner_size"]],
         optimizer_class=optim.Adam,
         with_RNN_layer=True,
-        rnn_type=pid_params["rnn_type"],  # Options: "RNN", "GRU", "LSTM". Change as needed.
     )
 
     model = PID_DQN(
@@ -171,7 +174,6 @@ def train_once(session_params, pid_params):
     decay_trials = int(pid_params["exploration_fraction"] * max_num_iters)
 
     # Replace buffer for on-trial data
-    orig_buffer = model.replay_buffer
     model.replay_buffer = OnlineReplayBuffer(
         buffer_size=10_000,
         observation_space=env.observation_space,
@@ -187,18 +189,13 @@ def train_once(session_params, pid_params):
                 desc=f"Trials (kd={pid_params['kd']}, omit={session_params['omission_prob']}, seed={pid_params['seed']})",
                 unit="trial")
     retrain = False
-
-    # Set continual learning flag
-    change_start = session_params["change_start"]
-    change_interval = session_params["change_interval"]
-    pairing_change = session_params["pairing_change"]
-    difficulty_change = session_params["difficulty_change"]
-
+    
 
     obs, _ = env.reset()
     trial_idx = 0
     eps = pid_params["initial_eps"]
     enl_count = 0
+    final_indices = []
     # — prime the recorder so rec._prev_obs isn't None on step 0 —
     recorder._prev_obs = obs
 
@@ -208,20 +205,10 @@ def train_once(session_params, pid_params):
         done = False
         trial_timesteps = 0
         z_prev = 0.0
+        trial_inds = []
 
-        # Make changes for continual learning
-        if trial_idx >= change_start and (trial_idx - change_start) % change_interval == 0:
-            if pairing_change:
-                # Change pairing type randomly
-                session_params["pairing"] = random.choice(['reward', 'punish'])
-                print(f"Changing pairing to {session_params['pairing']} at trial {trial_idx}")
-            else:
-                if difficulty_change == "increase":
-                    session_params["omission_prob"] = min(0.1, session_params["omission_prob"] + 0.1)
-                elif difficulty_change == "decrease":
-                    session_params["omission_prob"] = max(0.0, session_params["omission_prob"] - 0.1)
-                elif difficulty_change == "random":
-                    session_params["omission_prob"] = random.choice(np.arange(0.0, 0.9, 0.1))
+        # update env.trial count
+        env.trial_count = trial_idx
 
         # run one trial
         while not done:
@@ -272,101 +259,138 @@ def train_once(session_params, pid_params):
                                     d=np.array([d_update], dtype=np.float32),
                                     z=np.array([z_update], dtype=np.float32),
                                     )
+            
+            # record current trial idx within buffer
+            idx = (model.replay_buffer.pos - 1) % model.replay_buffer.buffer_size
+            trial_inds.append(idx)
+        
             # record every timestep in the session trace
             recorder.record_env_step(trial_idx, action, reward, next_obs, info, model=model)
             # update obs, z_prev
             obs, z_prev = next_obs, z_update
 
         # update exploration rate upon trial completion
-        if outcome == "trial_end":
+        if outcome != "enl_break":
             trial_idx += 1  # update trial index
             enl_count = 0   # reset ENL count
             frac = min(1.0, trial_idx / max(1, decay_trials))
             eps = pid_params["initial_eps"] + frac * (pid_params["minimum_eps"] - pid_params["initial_eps"])
             pbar.update(1)
         else:
-            # punish if stuck in ENL for > 200 steps
-            enl_count = enl_count + 1
-            reward -= max(enl_count - session_params["enl_threshold"], 0) * session_params["enl_punish_scale"]
-            # reset the seed and retrain if ENL > 1000 steps
-            if enl_count > 500:
+             # punish if stuck in ENL for > threshold steps then force trial end
+             enl_count += 1
+             reward -= max(enl_count - session_params["enl_threshold"], 0) * session_params["enl_punish_scale"]
+             if enl_count > 500:
                 retrain = True
                 print(f"ENL break after {enl_count} steps, retraining with different seed...")
-                return recorder, retrain
-
+                return recorder, retrain, True
+             
+        # bootstrapping: collect final step indices
+        final_indices.append(trial_inds[-1])
+        # make dynamic to adjust for batch size vs. available trials to pull from
+        k = min(len(final_indices), session_params["max_batch_size"])
+        n_recent = min(len(final_indices), session_params["num_recent"])
+        recent = final_indices[-n_recent:]
+        remaining = final_indices[:-n_recent]
+        needed = k - len(recent)
+        if needed > 0 and remaining:
+            sampled = random.sample(remaining, min(needed, len(remaining)))
+        else:
+            sampled = []
+        batch_idxs = recent + sampled
+    
         # train
-        model.train(batch_size=session_params["batch_size"],
-                    seq_len=trial_timesteps,
-                    gradient_steps=session_params["gradient_steps"])
+        model.train(gradient_steps=session_params["gradient_steps"], batch_idxs=batch_idxs)
 
-        # restore buffer & advance
-        model.replay_buffer = orig_buffer
 
     pbar.close()
 
-    return recorder, retrain
-
+    return recorder, retrain, False
 
 # ----------------------------------------------------------------
 # Main execution block for running the sweep
 # ----------------------------------------------------------------
 if __name__ == "__main__":
     # Define sweep grid
-    kd_values        = [0]  # PID derivative gain values
-    omission_probs   = [0]
+    kd_values        = [0, 0.1]  # PID derivative gain values
+    meta_lr_d        = [0, 0.1]  # Adapt ON for kd
+    omission_probs   = [0, 0.1]
     repeats          = 1  # Number of repeats for each combination
 
+    max_batch_sizes  = [1, 10]  # Different batch sizes to test
+    num_recents      = [1, 5]   # Different num_recent values to test
 
     # Save results settings
     batch_name = 'kd_omission_sweep'
-    os.makedirs("PID-results", exist_ok=True)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    results_root = os.path.join(script_dir, "PID-results-ext_buffer")
+
+    os.makedirs(results_root, exist_ok=True)
     today = pd.Timestamp.now().strftime("%Y%m%d")
-    os.makedirs(f"PID-results/{today}-{batch_name}", exist_ok=True)
+    save_dir = os.path.join(results_root, f"{today}-{batch_name}")
+    os.makedirs(save_dir, exist_ok=True)
     results = {}
 
     # Prevent CUDA from being used (patch)
     import TabularPID.Agents.DQN.DQN_policy as _dp
-    # find whatever class has jump_start_cuda and override it
     for _name in dir(_dp):
         cls = getattr(_dp, _name)
         if isinstance(cls, type) and hasattr(cls, "jump_start_cuda"):
             cls.jump_start_cuda = lambda self: None
 
-    # Loop through all combinations of kd and omission_prob
-    for kd, omit in itertools.product(kd_values, omission_probs):
-        # Create copies of the base parameters for each sweep iteration
-        sp = copy.deepcopy(base_session_params)
-        pp = copy.deepcopy(base_pid_params)
-        sp["omission_prob"] = omit
-        pp["kd"]             = kd
+    # --- New sweep loop ---
+    for max_b, num_r in zip(max_batch_sizes, num_recents):
+        print(f"\n=== Testing max_batch_size={max_b}, num_recent={num_r} ===")
 
-        print(f"\n=== Running sweep: kd={kd}, omission_prob={omit} ===")
-        for r in range(repeats):
-            retrain = True
-            while retrain:
-                # Set global seed for reproducibility
-                new_seed = random.randint(0, 10000)
-                set_global_seeds(new_seed)
-                pp["seed"] = new_seed
+        for kd, omit in itertools.product(kd_values, omission_probs):
+            # Create copies of the base parameters for each sweep iteration
+            sp = copy.deepcopy(base_session_params)
+            pp = copy.deepcopy(base_pid_params)
+            sp["omission_prob"] = omit
+            sp["max_batch_size"] = max_b
+            sp["num_recent"] = num_r
+            pp["kd"] = kd
+            pp["meta_lr_d"] = meta_lr_d[kd_values.index(kd)]
 
-                # Train once with the current parameters
-                print(f"Training with kd={kd}, omission_prob={omit} (repeat {r + 1}/{repeats})")
-                rec, retrain = train_once(sp, pp)
+            print(f"\n--- Running sweep: kd={kd}, omission_prob={omit} ---")
+            for r in range(repeats):
+                stuck_counts = 0
+                retrain = True
+                while retrain:
+                    # Set global seed for reproducibility
+                    new_seed = random.randint(0, 10000)
+                    set_global_seeds(new_seed)
+                    pp["seed"] = new_seed
 
-            # Plot and save summary figure
-            plot_figure(rec, dt=sp["dt"], pre_steps=sp["pre_steps"], post_steps=sp["post_steps"],
-                        save=True, save_path=f"PID-results/{today}-{batch_name}/kd_{kd}_omit_{omit}_seed_{pp['seed']}.png")
+                    # Train once with the current parameters
+                    print(f"Training with kd={kd}, omit={omit}, "
+                          f"max_batch={max_b}, num_recent={num_r}, "
+                          f"(repeat {r + 1}/{repeats})")
+                    rec, retrain, got_stuck = train_once(sp, pp)
+                    if got_stuck:
+                        stuck_counts += 1
 
-            # Store both params and recorder
-            results[(kd, omit, r)] = {
-                "session_params": sp,
-                "pid_params":     pp,
-                "recorder":       rec,
-                "seed":           pp["seed"],
-            }
+                # Plot and save summary figure
+                save_name = f"kd_{kd}_omit_{omit}_maxB_{max_b}_numR_{num_r}_seed_{pp['seed']}.png"
+                plot_figure(rec, dt=sp["dt"], pre_steps=sp["pre_steps"], post_steps=sp["post_steps"],
+                            save=True, save_path=os.path.join(save_dir, save_name))
 
-        # Save everything
-        with open(f"PID-results/{today}-{batch_name}/results_Kd_{kd}_omit_{omit}.pkl", "wb") as f:
-            pickle.dump(results, f)
+                # Store both params and recorder
+                results[(kd, omit, max_b, num_r, r)] = {
+                    "session_params": sp,
+                    "pid_params":     pp,
+                    "recorder":       rec,
+                    "seed":           pp["seed"],
+                    "stuck_counts":   stuck_counts
+                }
 
-    print(f"\nAll sweeps completed. Results saved to PID-results/{today}-{batch_name}")
+            # Save everything
+            result_file = f"results_Kd_{kd}_omit_{omit}_maxB_{max_b}_numR_{num_r}.pkl"
+            with open(os.path.join(save_dir, result_file), "wb") as f:
+                pickle.dump(results, f)
+
+    
+
+    print(f"\nAll sweeps completed. Results saved to {save_dir}")
+    plot_pid_results(results_root)
+    print("Summary Plot Saved")
