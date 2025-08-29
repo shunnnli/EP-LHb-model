@@ -312,23 +312,30 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             # sample a little noise term
             noise = th.randn_like(td_error)
 
-            # final joint loss
+            # final joint loss for main network (without d_update_loss)
             final_loss = (
-                base_loss + (noise * td_error).mean() + l2_penalty + d_update_loss
+                base_loss + (noise * td_error).mean() + l2_penalty
             )
             losses.append(final_loss.item())
 
-            # Optimize
-            self.policy.optimizer.zero_grad()
-            final_loss.backward()
-            th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
-            self.policy.optimizer.step()
+            # separate loss for eplhb network
+            eplhb_loss = d_update_loss
 
-            # Additional gradient clipping for EPLHb parameters
+            # Optimize both networks together
+            self.policy.optimizer.zero_grad()
+            # Compute gradients for main network
+            final_loss.backward()
+            # Compute gradients for eplhb network (this will add to existing gradients)
+            if hasattr(self.policy.q_net, 'eplhb'):
+                eplhb_loss.backward()
+            # Apply gradient clipping to all parameters
+            th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
             if hasattr(self.policy.q_net, 'eplhb'):
                 th.nn.utils.clip_grad_norm_(self.policy.q_net.eplhb.parameters(), 1.0)
                 if hasattr(self.policy.q_net, 'eplhb_coeff_raw'):
                     th.nn.utils.clip_grad_norm_([self.policy.q_net.eplhb_coeff_raw], 0.1)
+            # Update all parameters with the optimizer
+            self.policy.optimizer.step()
 
         # Increase update counter
         self._n_updates += gradient_steps
