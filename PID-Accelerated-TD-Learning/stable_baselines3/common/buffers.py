@@ -317,9 +317,9 @@ class ReplayBuffer(BaseBuffer):
             all_batch_inds = [np.arange(i, i + jump) for i in range(0, self.pos, jump)]
         return [self._get_samples(batch_inds, env=env) for batch_inds in all_batch_inds]
 
-    def _get_samples(self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None) -> ReplayBufferSamples:
-        # Sample randomly the env idx
-        env_indices = np.random.randint(0, high=self.n_envs, size=(len(batch_inds),))
+    def _get_samples(self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None, env_indices: Optional[np.ndarray] = None) -> ReplayBufferSamples:
+        if env_indices is None:
+            env_indices = np.random.randint(0, high=self.n_envs, size=(len(batch_inds),))
 
         if self.optimize_memory_usage:
             next_obs = self._normalize_obs(self.observations[(batch_inds + 1) % self.buffer_size, env_indices, :], env)
@@ -405,46 +405,38 @@ class OnlineReplayBuffer(ReplayBuffer):
 
     def sample(
         self,
-        batch_size: int,
+        batch_idxs: List,
         env=None,
-        seq_len: int = None
     ):
-        if seq_len is None:
-            # Generate indices manually
-            idxs = np.random.randint(0, self.size(), size=batch_size)
-            base_batch = self._get_samples(idxs, env=env)
-        else:
-            # truncated BPTT style: take the first `seq_len` of your buffer
-            n    = self.size()
-            L    = min(seq_len, n)
-            idxs = np.arange(L, dtype=int)
-            base_batch = self._get_samples(idxs, env=env)
+        # 1) Get idxs to sample
+        idxs = np.array(batch_idxs, dtype=int)
+        base_batch = self._get_samples(idxs, env=env)
 
-        # Slice d & z using the sampled indices
+        # 2) Slice custom fields
         batch_ds = th.as_tensor(self.ds[idxs], device=self.device)
         batch_zs = th.as_tensor(self.zs[idxs], device=self.device)
 
-        # Turn the base namedtuple into a dict
-        data = { field: getattr(base_batch, field) for field in base_batch._fields }
-        # Inject your custom tensors
+        # 3) Build data dict from namedtuple
+        data = {field: getattr(base_batch, field) for field in base_batch._fields}
         data['ds'] = batch_ds
         data['zs'] = batch_zs
-
         data['indices'] = idxs
 
-        # If using sequence mode, reshape accordingly
-        if seq_len is not None:
-            for field in ('observations','next_observations'):
-                arr = data[field]
-                if arr.ndim == 2:
-                    data[field] = arr[np.newaxis, ...]
-            for field in ('actions','rewards','dones','ds','zs'):
-                arr = data[field]
-                if arr.ndim == 1:
-                    data[field] = arr[np.newaxis, :]
-                elif arr.ndim == 2:
-                    data[field] = arr[np.newaxis, ...]
+        # 4) Ensure correct shapes for batch and sequence
+        # Determine batch (B) and sequence length (L)
+        B = len(idxs)
+        L = 1
+
+        # Observations and next_observations -> [B, L, obs_dim]
+        for field in ('observations', 'next_observations'):
+            data[field] = data[field].reshape(B, L, -1)
+
+        # Actions, rewards, dones, ds, zs -> [B, L]
+        for field in ('actions', 'rewards', 'dones', 'ds', 'zs'):
+            data[field] = data[field].reshape(B, L)
+
         return SimpleNamespace(**data)
+    
     def update(self, indices, zs=None, ds=None):
         if zs is not None:
             self.zs[indices] = zs.cpu().numpy()
