@@ -12,7 +12,7 @@ if repo_path not in sys.path:
     sys.path.insert(0, repo_path)
 # from TabularPID.AgentBuilders.DQNBuilder import build_PID_DQN # not working for me
 from stable_baselines3.common.logger import configure
-from stable_baselines3.common.buffers import OnlineReplayBuffer
+from stable_baselines3.common.buffers import ExtendedReplayBuffer
 from TabularPID.Agents.DQN.DQN import PID_DQN
 from TabularPID.Agents.DQN.DQN_gain_adapter import NoGainAdapter, SingleGainAdapter, DiagonalGainAdapter, NetworkGainAdapter
 
@@ -160,7 +160,7 @@ def train_once(session_params, pid_params):
         is_double=pid_params["is_double"],
         optimal_model=None,
         policy_evaluation=pid_params["policy_evaluation"],
-        replay_buffer_class=OnlineReplayBuffer,
+        replay_buffer_class=ExtendedReplayBuffer,
     )
     gain_adapter.set_model(model)
 
@@ -174,7 +174,7 @@ def train_once(session_params, pid_params):
     decay_trials = int(pid_params["exploration_fraction"] * max_num_iters)
 
     # Replace buffer for on-trial data
-    model.replay_buffer = OnlineReplayBuffer(
+    model.replay_buffer = ExtendedReplayBuffer(
         buffer_size=10_000,
         observation_space=env.observation_space,
         action_space=env.action_space,
