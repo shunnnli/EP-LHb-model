@@ -109,8 +109,10 @@ class RNNQNetwork(QNetwork):
         net_arch: Optional[List[int]] = None,
         activation_fn: Type[nn.Module] = nn.ReLU,
         normalize_images: bool = True,
+        rnn_input_size: int = 128,
         rnn_hidden_size: int = 128,
         rnn_num_layers: int = 1,
+        rnn_type: str = "RNN",
     ) -> None:
         # initialize features_extractor + MLP defaults
         super().__init__(
@@ -123,16 +125,44 @@ class RNNQNetwork(QNetwork):
             normalize_images=normalize_images,
         )
 
+        self.rnn_input_size = rnn_input_size
         self.rnn_hidden_size = rnn_hidden_size
         self.rnn_num_layers  = rnn_num_layers
 
-        # override the pure-MLP q_net with an RNN → MLP
-        self.rnn = nn.RNN(
-            input_size=self.features_dim,
-            hidden_size=rnn_hidden_size,
-            num_layers=rnn_num_layers,
-            batch_first=True,
-        )
+        # Create input projection from obs to rnn_input_size
+        self.input_projection = nn.Linear(self.features_dim, rnn_input_size)
+        self.input_norm = nn.LayerNorm(int(rnn_input_size))
+
+        # Select RNN type
+        if rnn_type == "GRU":
+            self.rnn = nn.GRU(
+                input_size=rnn_input_size,
+                hidden_size=rnn_hidden_size,
+                num_layers=rnn_num_layers,
+                batch_first=True,
+            )
+        elif rnn_type == "LSTM":
+            self.rnn = nn.LSTM(
+                input_size=rnn_input_size,
+                hidden_size=rnn_hidden_size,
+                num_layers=rnn_num_layers,
+                batch_first=True,
+            )
+        else:
+            self.rnn = nn.RNN(
+                input_size=rnn_input_size,
+                hidden_size=rnn_hidden_size,
+                num_layers=rnn_num_layers,
+                batch_first=True,
+            )
+        # Custom initialization for RNN/GRU/LSTM weights
+        for name, param in self.rnn.named_parameters():
+            if 'weight' in name:
+                nn.init.xavier_uniform_(param)
+            elif 'bias' in name:
+                nn.init.constant_(param, 0)
+
+        
         # post-RNN MLP head to actions
         layers = create_mlp(
             input_dim=rnn_hidden_size,
@@ -141,6 +171,7 @@ class RNNQNetwork(QNetwork):
             activation_fn=self.activation_fn,
         )
         self.post_rnn = nn.Sequential(*layers)
+        print(layers)
 
         # placeholder for hidden state; will be (num_layers, batch, hidden_size)
         self._h = None
@@ -154,7 +185,9 @@ class RNNQNetwork(QNetwork):
         # 1) extract features
         features = self.extract_features(obs, self.features_extractor)
         # 2) add time-dim: (batch, seq=1, feat_dim)
-        rnn_in = features.unsqueeze(1)
+        rnn_in = self.input_projection(features)
+        rnn_in = self.input_norm(rnn_in)
+        rnn_in = rnn_in.unsqueeze(1)
 
         # 3) if this is the very first call (or after reset), init hidden
         if self._h is None or self._h.size(1) != obs.size(0):
@@ -171,6 +204,194 @@ class RNNQNetwork(QNetwork):
         # 6) squash seq dim and feed through your MLP head
         out = out.squeeze(1)            # (batch, hidden)
         return self.post_rnn(out)       # (batch, num_actions)
+    
+
+class EPLHbNetwork(QNetwork):
+    """
+    Same as QNetwork but with a one‐step RNN prior to the MLP head and an EPLHb layer.
+    All other methods (_predict, _get_constructor_parameters, reset_parameters)
+    are inherited directly from QNetwork.
+    """
+
+    def __init__(
+        self,
+        observation_space: spaces.Space,
+        action_space: spaces.Discrete,
+        features_extractor: BaseFeaturesExtractor,
+        features_dim: int,
+        net_arch: Optional[List[int]] = None,
+        activation_fn: Type[nn.Module] = nn.ReLU,
+        normalize_images: bool = True,
+        rnn_input_size: int = 128,
+        rnn_hidden_size: int = 128,
+        rnn_num_layers: int = 1,
+        eplhb_hidden_dim: int = 32,
+        initial_eplhb_coeff: float = 0.01,
+        rnn_type: str = "RNN",
+    ) -> None:
+        # initialize features_extractor + MLP defaults
+        super().__init__(
+            observation_space,
+            action_space,
+            features_extractor=features_extractor,
+            features_dim=features_dim,
+            net_arch=net_arch,
+            activation_fn=activation_fn,
+            normalize_images=normalize_images,
+        )
+
+        self.rnn_input_size = rnn_input_size
+        self.rnn_hidden_size = rnn_hidden_size
+        self.rnn_num_layers  = rnn_num_layers
+        self.eplhb_hidden_dim = eplhb_hidden_dim
+
+        # Create input projection from obs to rnn_input_size
+        self.input_projection = nn.Linear(self.features_dim, rnn_input_size)
+        self.input_norm = nn.LayerNorm(int(rnn_input_size))
+        
+        # Allow user to specify initial eplhb_coeff value via policy_kwargs
+        # Use a transformation to ensure eplhb_coeff is always non-positive and bounded
+        self.eplhb_coeff_raw = nn.Parameter(th.tensor(initial_eplhb_coeff))
+        # Transform to ensure non-positive values: -sigmoid(x) bounds between [-1, 0)
+        # eplhb_coeff is now a property that returns -th.sigmoid(self.eplhb_coeff_raw)
+
+        # Select RNN type
+        if rnn_type == "GRU":
+            self.rnn = nn.GRU(
+                input_size=rnn_input_size,
+                hidden_size=rnn_hidden_size,
+                num_layers=rnn_num_layers,
+                batch_first=True,
+            )
+        elif rnn_type == "LSTM":
+            self.rnn = nn.LSTM(
+                input_size=rnn_input_size,
+                hidden_size=rnn_hidden_size,
+                num_layers=rnn_num_layers,
+                batch_first=True,
+            )
+        else:
+            self.rnn = nn.RNN(
+                input_size=rnn_input_size,
+                hidden_size=rnn_hidden_size,
+                num_layers=rnn_num_layers,
+                batch_first=True,
+            )
+        # Custom initialization for RNN/GRU/LSTM weights
+        for name, param in self.rnn.named_parameters():
+            if 'weight' in name:
+                nn.init.xavier_uniform_(param)
+            elif 'bias' in name:
+                nn.init.constant_(param, 0)
+
+        # post-RNN MLP head to actions
+        layers = create_mlp(
+            input_dim=rnn_hidden_size,
+            output_dim=self.action_space.n,
+            net_arch=self.net_arch,
+            activation_fn=self.activation_fn,
+        )
+        self.post_rnn = nn.Sequential(*layers)
+
+        # --- NEW: EPLHb MLP ---
+        # input is [rnn_hidden + Q-MLP pre-output], map to a scalar
+        class MeanLayer(nn.Module):
+            def forward(self, x):
+                return x.mean(dim=1, keepdim=True)
+        self.eplhb = nn.Sequential(
+            nn.Linear(rnn_hidden_size + 1, self.eplhb_hidden_dim),
+            nn.ReLU(),
+            MeanLayer()
+        )
+        
+        # Initialize EPLHb weights with small values to prevent large outputs
+        for layer in self.eplhb:
+            if isinstance(layer, nn.Linear):
+                nn.init.xavier_uniform_(layer.weight, gain=0.1)  # Small gain
+                nn.init.constant_(layer.bias, 0.0)
+        
+        # Add input normalization layer for RNN input
+        self.input_norm = nn.LayerNorm(int(rnn_input_size))
+        
+        # Add separate normalization layer for EPLHb input
+        self.eplhb_input_norm = nn.LayerNorm(int(rnn_hidden_size + 1))
+
+        # placeholder for hidden state; will be (num_layers, batch, hidden_size)
+        self._h = None
+
+    def reset_hidden(self, batch_size: int = 1, device: th.device = None) -> None:
+        """Zero out the hidden state. Call this at the start of each new episode."""
+        device = device or next(self.parameters()).device
+        self._h = th.zeros(self.rnn_num_layers, batch_size, self.rnn_hidden_size, device=device)
+
+    def forward(self, obs: th.Tensor) -> th.Tensor:
+        # 1) extract features
+        features = self.extract_features(obs, self.features_extractor)
+        # 2) add time-dim: (batch, seq=1, feat_dim)
+        rnn_in = self.input_projection(features)
+        rnn_in = self.input_norm(rnn_in)
+        rnn_in = rnn_in.unsqueeze(1)
+
+        # 3) if this is the very first call (or after reset), init hidden
+        if self._h is None or self._h.size(1) != obs.size(0):
+            # assume batch = obs.shape[0]
+            self.reset_hidden(batch_size=obs.size(0), device=obs.device)
+
+        # 4) run RNN with the *previous* hidden state
+        #    out: (batch, seq=1, hidden), h_n: (num_layers, batch, hidden)
+        out, h_n = self.rnn(rnn_in, self._h)
+
+        # 5) detach and cache the new hidden state for next call
+        self._h = h_n.detach()
+
+        # 6) squash seq dim and feed through your MLP head
+        out = out.squeeze(1)            # (batch, hidden)
+        q_out = self.post_rnn(out)       # (batch, num_actions)
+
+        return q_out
+
+    def forward_full(self, obs: th.Tensor):
+        # 1) extract features
+        features = self.extract_features(obs, self.features_extractor)
+        # 2) add time-dim: (batch, seq=1, feat_dim)
+        rnn_in = self.input_projection(features)
+        rnn_in = self.input_norm(rnn_in)
+        rnn_in = rnn_in.unsqueeze(1)
+
+        # 3) if this is the very first call (or after reset), init hidden
+        if self._h is None or self._h.size(1) != obs.size(0):
+            # assume batch = obs.shape[0]
+            self.reset_hidden(batch_size=obs.size(0), device=obs.device)
+
+        # 4) run RNN with the *previous* hidden state
+        #    out: (batch, seq=1, hidden), h_n: (num_layers, batch, hidden)
+        out, h_n = self.rnn(rnn_in, self._h)
+        last_embed = out[:, -1, :]  # (batch, hidden) - last time step output
+
+        # 5) detach and cache the new hidden state for next call
+        self._h = h_n.detach()
+
+        # 6) squash seq dim and feed through your MLP head (why not last embed as input?)
+        out = out.squeeze(1)            # (batch, hidden)
+        q_out = self.post_rnn(out)       # (batch, num_actions)
+        chosen_action = q_out.argmax(dim=1, keepdim=True)  # (batch, 1)
+
+        # 7) concat last embed and the chosen action to feed to eplhb
+        concat = th.cat([last_embed, chosen_action], dim=-1)
+        # Normalize input to prevent scale issues
+        concat_norm = self.eplhb_input_norm(concat)
+        eplhb_out = self.eplhb(concat_norm).squeeze(-1)
+        # Clamp output to prevent extreme values
+        # eplhb_out = th.clamp(eplhb_out, min=-10.0, max=10.0)
+
+        return q_out, h_n, eplhb_out
+
+    @property
+    def eplhb_coeff(self):
+        """Return the transformed eplhb_coeff, ensuring it's always non-positive and bounded."""
+        return -abs(self.eplhb_coeff_raw)
+
+
 
 
 class DQNPolicy(BasePolicy):
@@ -209,6 +430,8 @@ class DQNPolicy(BasePolicy):
         optimizer_class: Type[th.optim.Optimizer] = th.optim.Adam,
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
         with_RNN_layer: bool = True,
+        with_EPLHb_layer: bool = False,
+        rnn_type: str = "RNN",  # Options: "RNN", "GRU", "LSTM"
     ) -> None:
         super().__init__(
             observation_space,
@@ -229,14 +452,23 @@ class DQNPolicy(BasePolicy):
         self.net_arch = net_arch
         self.activation_fn = activation_fn
         self.with_RNN_layer = with_RNN_layer
-
+        self.with_EPLHb_layer = with_EPLHb_layer
+        self.rnn_type = rnn_type
+        
         self.net_args = {
             "observation_space": self.observation_space,
             "action_space": self.action_space,
             "net_arch": self.net_arch,
             "activation_fn": self.activation_fn,
             "normalize_images": normalize_images,
+            "rnn_type": self.rnn_type,
         }
+
+        # Extract initial_eplhb_coeff from features_extractor_kwargs if provided
+        if features_extractor_kwargs and 'initial_eplhb_coeff' in features_extractor_kwargs:
+            self.initial_eplhb_coeff = features_extractor_kwargs.pop('initial_eplhb_coeff')
+        else:
+            self.initial_eplhb_coeff = 0.01
 
         self._build(lr_schedule)
 
@@ -258,17 +490,53 @@ class DQNPolicy(BasePolicy):
         self.d_net.load_state_dict(self.q_net.state_dict())
         self.d_net.set_training_mode(False)  # Keep false so that we don't dropout anything here
 
+        # Set up parameter groups
+        main_lr = lr_schedule(1)
+        # Allow user to specify eplhb_lr and coeff_lr via optimizer_kwargs
+        eplhb_lr = self.optimizer_kwargs.pop('eplhb_lr', 1e-4)
+        coeff_lr = self.optimizer_kwargs.pop('coeff_lr', 1e-5)
+
+        from .DQN_policy import EPLHbNetwork
+        if isinstance(self.q_net, EPLHbNetwork):
+            eplhb_params = list(self.q_net.eplhb.parameters())
+            # Only include eplhb_coeff_raw if coeff_lr > 0
+            if coeff_lr > 0:
+                eplhb_coeff_param = [self.q_net.eplhb_coeff_raw]
+            else:
+                eplhb_coeff_param = []
+        else:
+            eplhb_params = []
+            eplhb_coeff_param = []
+        other_params = [
+            p for n, p in self.q_net.named_parameters()
+            if not n.startswith('eplhb.') and n != 'eplhb_coeff_raw'
+        ]
+
         # Setup optimizer with initial learning rate
+        param_groups = [
+            {'params': other_params, 'lr': main_lr},
+            {'params': eplhb_params, 'lr': eplhb_lr},
+        ]
+        # Only add eplhb_coeff_param group if coeff_lr > 0
+        if coeff_lr > 0:
+            param_groups.append({'params': eplhb_coeff_param, 'lr': coeff_lr})
+            
         self.optimizer = self.optimizer_class(  # type: ignore[call-arg]
-            self.parameters(),
-            lr=lr_schedule(1),
+            param_groups,
             **self.optimizer_kwargs,
         )
 
     def make_q_net(self) -> QNetwork:
         # Make sure we always have separate networks for features extractors etc
         net_args = self._update_features_extractor(self.net_args, features_extractor=None)
-        net_cls = RNNQNetwork if self.with_RNN_layer else QNetwork
+        if self.with_EPLHb_layer: 
+            net_cls = EPLHbNetwork
+            # Pass initial_eplhb_coeff to EPLHbNetwork
+            net_args['initial_eplhb_coeff'] = self.initial_eplhb_coeff
+        elif self.with_RNN_layer: 
+            net_cls = RNNQNetwork
+        else: 
+            net_cls = QNetwork
         return net_cls(**net_args).to(self.device)
 
     def forward(self, obs: th.Tensor, deterministic: bool = True) -> th.Tensor:
