@@ -27,7 +27,7 @@ from types import SimpleNamespace
 # session_params defined here
 base_session_params = {
     "pairing":          'reward',
-    "num_trials":       100,
+    "num_trials":       10,
     "pre_steps":        10,
     "post_steps":       40,
     "enl_duration":     (2.0, 4.0),
@@ -42,7 +42,7 @@ base_session_params = {
     "gamma":            0.95,
     "batch_training":   False,
     "batch_size":       1, 
-    "max_batch_size":   1,   # max replay buffer space
+    "max_batch_size":   5,   # max replay buffer space
     "num_recent":       1,   # number of consecutive recent trials to fill replay buffer. ex. 5 num_recent, means 5 random old trials in size 10 replay buffer
     "buffer_size":      1,
     "dt":               0.1,
@@ -80,6 +80,8 @@ base_pid_params = {
     "is_double":            False,
     "policy_evaluation":    False,
     "seed":                 26,
+    "rnn_type": "GRU",  # Options: "RNN", "GRU", "LSTM". Change as needed.
+    "l2_lambda": 1e-6,  # L2 regularization strength for EPLHb weights
 }
 
 
@@ -114,7 +116,7 @@ def train_once(session_params, pid_params):
         continual_learning=session_params["continual_learning"],
         change_start=session_params["change_start"],
         change_interval=session_params["change_interval"],
-        printing=False
+        print_status=False,
     )
 
     gain_adapter = SingleGainAdapter(
@@ -132,6 +134,7 @@ def train_once(session_params, pid_params):
         net_arch=[pid_params["inner_size"], pid_params["inner_size"]],
         optimizer_class=optim.Adam,
         with_RNN_layer=True,
+        rnn_type=pid_params["rnn_type"], # RNN, GRU, LSTM
     )
 
     model = PID_DQN(
@@ -270,7 +273,7 @@ def train_once(session_params, pid_params):
             obs, z_prev = next_obs, z_update
 
         # update exploration rate upon trial completion
-        if outcome != "enl_break":
+        if outcome == "trial_end":
             trial_idx += 1  # update trial index
             enl_count = 0   # reset ENL count
             frac = min(1.0, trial_idx / max(1, decay_trials))
@@ -298,6 +301,8 @@ def train_once(session_params, pid_params):
         else:
             sampled = []
         batch_idxs = recent + sampled
+
+        print("batch_idxs:", batch_idxs)
     
         # train
         model.train(gradient_steps=session_params["gradient_steps"], batch_idxs=batch_idxs)
@@ -312,13 +317,13 @@ def train_once(session_params, pid_params):
 # ----------------------------------------------------------------
 if __name__ == "__main__":
     # Define sweep grid
-    kd_values        = [0, 0.1]  # PID derivative gain values
-    meta_lr_d        = [0, 0.1]  # Adapt ON for kd
-    omission_probs   = [0, 0.1]
+    kd_values        = [0]  # PID derivative gain values
+    meta_lr_d        = [0]  # Adapt ON for kd
+    omission_probs   = [0]
     repeats          = 1  # Number of repeats for each combination
 
-    max_batch_sizes  = [1, 10]  # Different batch sizes to test
-    num_recents      = [1, 5]   # Different num_recent values to test
+    max_batch_sizes  = [1]  # Different batch sizes to test
+    num_recents      = [1]   # Different num_recent values to test
 
     # Save results settings
     batch_name = 'kd_omission_sweep'
