@@ -351,7 +351,6 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
 
 
 
-
 def train_gym_environment(model, env, env_params, pid_params, fix_source_weights=0):
     """Train on gym environment (exactly matching EPLHb-Gym.py)"""
     
