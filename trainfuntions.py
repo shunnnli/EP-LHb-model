@@ -4,7 +4,7 @@ if repo_path not in sys.path:
     sys.path.insert(0, repo_path)
 
 from stable_baselines3.common.logger import configure
-from stable_baselines3.common.buffers import OnlineReplayBuffer
+from stable_baselines3.common.buffers import OnlineReplayBuffer, ExtendedReplayBuffer
 from TabularPID.Agents.DQN.DQN import EPLHb_DQN, PID_DQN
 from TabularPID.Agents.DQN.DQN_gain_adapter import NoGainAdapter, SingleGainAdapter, DiagonalGainAdapter, NetworkGainAdapter
 
@@ -18,8 +18,12 @@ from tqdm import tqdm
 import random
 from recorder import SessionRecorder
 
+# TODO: Add PID model setup function
+#def setup_PID_model(env, pid_params, device="cpu"):
 
-def setup_model(env, pid_params, device="cpu"):
+
+
+def setup_EPLHb_model(env, pid_params, device="cpu"):
     """Setup EPLHb_DQN model with appropriate parameters"""
     # Gain adapter
     gain_adapter = SingleGainAdapter(
@@ -43,7 +47,7 @@ def setup_model(env, pid_params, device="cpu"):
         ),
     )
 
-        # EPLHb-specific optimizer kwargs
+    # EPLHb-specific optimizer kwargs
     optimizer_kwargs = dict(
         eplhb_lr=pid_params["eplhb_lr"],
         coeff_lr=pid_params["coeff_lr"],
@@ -59,7 +63,7 @@ def setup_model(env, pid_params, device="cpu"):
     else:
         device = torch.device(device)
 
-        # Set up the model
+    # Set up the model
     model = EPLHb_DQN(
         pid_params['d_tau'],
         pid_params['tabular_d'],
@@ -90,7 +94,7 @@ def setup_model(env, pid_params, device="cpu"):
         optimal_model=None,
         policy_evaluation=pid_params['policy_evaluation'],
 
-        replay_buffer_class=OnlineReplayBuffer,
+        replay_buffer_class=ExtendedReplayBuffer,
     )
     
     # Set additional parameters
@@ -104,12 +108,10 @@ def setup_model(env, pid_params, device="cpu"):
 
 
 
-
-
 def setup_buffer(model, env_type, env, warmup_steps=10000):
     if env_type == "operant":
         orig_buffer = model.replay_buffer
-        model.replay_buffer = OnlineReplayBuffer(
+        model.replay_buffer = ExtendedReplayBuffer(
             buffer_size=10_000, # hold the last 10 000 steps (ie 1000 seconds)
             observation_space=env.observation_space,
             action_space=env.action_space,
@@ -149,6 +151,7 @@ def setup_buffer(model, env_type, env, warmup_steps=10000):
         return None  # No custom buffer needed, use default
     else:
         raise ValueError(f"Unknown environment type: {env_type}")
+
 
 
 
@@ -348,6 +351,7 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
 
 
 
+
 def train_gym_environment(model, env, env_params, pid_params, fix_source_weights=0):
     """Train on gym environment (exactly matching EPLHb-Gym.py)"""
     
@@ -450,7 +454,6 @@ def train_gym_environment(model, env, env_params, pid_params, fix_source_weights
     
     print(f"Gym environment training complete! Trained for {num_episodes} episodes.")
     return all_total_rewards
-
 
 
 
