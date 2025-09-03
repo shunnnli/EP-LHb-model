@@ -497,11 +497,29 @@ class ExtendedReplayBuffer(ReplayBuffer):
 
     def sample(
         self,
-        batch_idxs: List,
+        batch_size: int = None,
+        batch_idxs: List = None,
         env=None,
     ):
-        # 1) Get idxs to sample
-        idxs = np.array(batch_idxs, dtype=int)
+        # 1) Get idxs to sample - handle both calling conventions
+        if batch_idxs is not None:
+            idxs = np.array(batch_idxs, dtype=int)
+        elif batch_size is not None:
+            # Generate random indices like the regular ReplayBuffer
+            if self.full:
+                if self.buffer_size > 1:
+                    idxs = (np.random.randint(1, self.buffer_size, size=batch_size) + self.pos) % self.buffer_size
+                else:
+                    # Handle edge case when buffer_size is 1
+                    idxs = np.array([0] * batch_size, dtype=int)
+            else:
+                if self.pos > 0:
+                    idxs = np.random.randint(0, self.pos, size=batch_size)
+                else:
+                    # Handle edge case when buffer is empty
+                    idxs = np.array([0] * batch_size, dtype=int)
+        else:
+            raise ValueError("Either batch_size or batch_idxs must be provided")
         base_batch = self._get_samples(idxs, env=env)
 
         # 2) Slice custom fields

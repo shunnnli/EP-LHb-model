@@ -187,7 +187,15 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
     trial_idx = 0
     eps = eps_start
     recorder._prev_obs = obs
-
+    
+        # Track indices for batch sampling (like in PID-Operant.py)
+    trial_inds = []
+    final_indices = []
+    
+    # Phase printing flags
+    phase1_printed = False
+    phase2_printed = False
+    
     # --- Main training loop with tqdm bar ---
     pbar = tqdm(total=num_trials,
                 desc=f"Trials (seed={pid_params['seed']})",
@@ -200,8 +208,9 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
         
         # Manage network freezing for the first n trials
         if trial_idx < fix_source_weights:
-            if print_status:
+            if print_status and not phase1_printed:
                 print(f"\n--- Phase 1: Freezing transferred weights for first {fix_source_weights} trials ---")
+                phase1_printed = True
             # Freeze transferred weights (RNN, MLP body, EPLHb)
             for name, param in q_net.named_parameters():
                 if any(layer in name for layer in ['rnn', 'eplhb', 'eplhb_coeff_raw']):
@@ -217,8 +226,9 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
             )
         
         if trial_idx >= fix_source_weights:
-            if print_status:
+            if print_status and not phase2_printed:
                 print(f"\n--- Phase 2: Unfreezing all weights to fine-tune entire network ---")
+                phase2_printed = True
             # Unfreeze all parameters
             for param in q_net.parameters():
                 param.requires_grad = True
@@ -235,9 +245,12 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
         trial_timesteps = 0
         enl_count = 0
         z_prev = 0.0
+        
+        # Reset trial indices for this trial
+        trial_inds = []
 
         # Make changes for continual learning
-        if trial_idx >= change_start and (trial_idx - change_start) % change_interval == 0:
+        if change_interval > 0 and trial_idx >= change_start and (trial_idx - change_start) % change_interval == 0:
             if pairing_change:
                 # Change pairing type randomly
                 env_params["pairing"] = random.choice(['reward', 'punish'])
@@ -316,6 +329,10 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
                 z=np.array([z_update], dtype=np.float32),
             )
             
+            # Record current trial idx within buffer (like in PID-Operant.py)
+            idx = (model.replay_buffer.pos - 1) % model.replay_buffer.buffer_size
+            trial_inds.append(idx)
+            
             # Record every timestep
             recorder.record_env_step(trial_idx, action, reward, next_obs, info, model=model,
                                   record_sign_index=True, record_eplhb_weight=True)
@@ -338,8 +355,23 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
                 print(f"ENL break after {enl_count} steps, retraining with different seed...")
                 return recorder, retrain
         
-        # Do training step
-        model.train(batch_size=pid_params["batch_size"], seq_len=trial_timesteps, gradient_steps=gradient_steps)
+        # Bootstrapping: collect final step indices (like in PID-Operant.py)
+        final_indices.append(trial_inds[-1])
+        
+        # Make dynamic to adjust for batch size vs. available trials to pull from
+        k = min(len(final_indices), pid_params["batch_size"])
+        n_recent = min(len(final_indices), 10)  # Use last 10 trials as recent
+        recent = final_indices[-n_recent:]
+        remaining = final_indices[:-n_recent]
+        needed = k - len(recent)
+        if needed > 0 and remaining:
+            sampled = random.sample(remaining, min(needed, len(remaining)))
+        else:
+            sampled = []
+        batch_idxs = recent + sampled
+        
+        # Do training step using batch_idxs
+        model.train(gradient_steps=gradient_steps, batch_idxs=batch_idxs)
         
         # Restore original buffer to keep accumulating long-term experience
         if orig_buffer is not None:

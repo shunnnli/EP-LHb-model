@@ -233,7 +233,7 @@ class EPLHb_DQN(OffPolicyAlgorithm):
         self.exploration_rate = self.exploration_schedule(self._current_progress_remaining)
         self.logger.record("rollout/exploration_rate", self.exploration_rate)
 
-    def train(self, gradient_steps: int, batch_size: int = 100, seq_len: int = None) -> None:
+    def train(self, gradient_steps: int, batch_size: int = 100, seq_len: int = None, batch_idxs: List[int] = None) -> None:
         # Switch to train mode (this affects batch norm / dropout)
         self.policy.set_training_mode(True)
         # Update learning rate according to schedule
@@ -243,7 +243,10 @@ class EPLHb_DQN(OffPolicyAlgorithm):
         is_recurrent = hasattr(self.policy.q_net, "reset_hidden")
         use_bptt   = is_recurrent and seq_len is not None
         if use_bptt:
-            return self._train_recurrent(gradient_steps, batch_size, seq_len)
+            if batch_idxs is not None:
+                return self._train_recurrent(gradient_steps, batch_idxs)
+            else:
+                return self._train_recurrent(gradient_steps, batch_size, seq_len)
 
         losses = []
         l2_lambda = getattr(self, 'l2_lambda', None)
@@ -253,10 +256,15 @@ class EPLHb_DQN(OffPolicyAlgorithm):
 
         for _ in range(gradient_steps):
             # Sample replay buffer
-            replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)  # type: ignore[union-attr]
+            if batch_idxs is not None:
+                replay_data = self.replay_buffer.sample(batch_idxs=batch_idxs, env=self._vec_normalize_env)  # type: ignore[union-attr]
+                actual_batch_size = len(batch_idxs)
+            else:
+                replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)  # type: ignore[union-attr]
+                actual_batch_size = batch_size
 
             with th.no_grad():
-                next_q_values = self.compute_next_q_values(replay_data, batch_size)
+                next_q_values = self.compute_next_q_values(replay_data, actual_batch_size)
                 # 1-step TD target
                 target_q_values = replay_data.rewards + (1 - replay_data.dones) * self.gamma * next_q_values
 
@@ -301,7 +309,7 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             base_loss = F.smooth_l1_loss(q_taken, target.squeeze(-1))
 
             # auxiliary loss to see whether EPLHb is similar to d_update value
-            d_update_loss = F.smooth_l1_loss(eplhb_out, self.d_update)
+            d_update_loss = F.smooth_l1_loss(eplhb_out, self.d_update.squeeze(-1))
 
             # L2 regularization for EPLHb weights
             l2_penalty = 0.0
@@ -323,7 +331,7 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             # Optimize both networks together
             self.policy.optimizer.zero_grad()
             # Compute gradients for main network
-            final_loss.backward()
+            final_loss.backward(retain_graph=True)
             # Compute gradients for eplhb network (this will add to existing gradients)
             if hasattr(self.policy.q_net, 'eplhb'):
                 eplhb_loss.backward()
@@ -369,7 +377,7 @@ class EPLHb_DQN(OffPolicyAlgorithm):
                     # Update the main network learning rate
                     param_group["lr"] = new_lr
 
-    def _train_recurrent(self, gradient_steps: int, batch_size: int, seq_len: int):
+    def _train_recurrent(self, gradient_steps: int, batch_size: int = None, seq_len: int = None, batch_idxs: List[int] = None):
         losses = []
         net    = self.policy.q_net
         tgt    = self.q_net_target
@@ -383,11 +391,17 @@ class EPLHb_DQN(OffPolicyAlgorithm):
 
         for _ in range(gradient_steps):
             # 1) sample a sequence of length seq_len
-            batch = self.replay_buffer.sample(
-                batch_size=batch_size,
-                env=self._vec_normalize_env,
-                seq_len=seq_len,
-            )
+            if batch_idxs is not None:
+                batch = self.replay_buffer.sample(
+                    batch_idxs=batch_idxs,
+                    env=self._vec_normalize_env,
+                )
+            else:
+                batch = self.replay_buffer.sample(
+                    batch_size=batch_size,
+                    env=self._vec_normalize_env,
+                    seq_len=seq_len,
+                )
             obs_seq      = batch.observations          # [B, L, obs_dim]
             act_seq      = batch.actions.squeeze(-1)   # [B, L]
             rew_seq      = batch.rewards.squeeze(-1)   # [B, L]
