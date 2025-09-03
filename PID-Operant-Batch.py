@@ -302,7 +302,6 @@ def train_once(session_params, pid_params):
             sampled = []
         batch_idxs = recent + sampled
 
-        print("batch_idxs:", batch_idxs)
     
         # train
         model.train(gradient_steps=session_params["gradient_steps"], batch_idxs=batch_idxs)
@@ -317,13 +316,13 @@ def train_once(session_params, pid_params):
 # ----------------------------------------------------------------
 if __name__ == "__main__":
     # Define sweep grid
-    kd_values        = [0]  # PID derivative gain values
-    meta_lr_d        = [0]  # Adapt ON for kd
-    omission_probs   = [0]
+    kd_values        = [0, 0.1]  # PID derivative gain values
+    meta_lr_d        = [0, 0.1]  # Adapt ON for kd
+    omission_probs   = [0, 0.1]
     repeats          = 1  # Number of repeats for each combination
 
-    max_batch_sizes  = [1]  # Different batch sizes to test
-    num_recents      = [1]   # Different num_recent values to test
+    max_batch_sizes  = [1, 5]  # Different batch sizes to test
+    num_recents      = [1, 5]   # Different num_recent values to test
 
     # Save results settings
     batch_name = 'kd_omission_sweep'
