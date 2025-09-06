@@ -21,7 +21,7 @@ from recorder import SessionRecorder
 # TODO: Add PID model setup function
 #def setup_PID_model(env, pid_params, device="cpu"):
 
-def setup_model(env, pid_params, model_type="PID", device="cpu"):
+def setup_model(env, pid_params, device="cpu", model_type="EPLHb",):
     """
     Setup a PID_DQN or EPLHb_DQN model with appropriate parameters.
     model_type: "PID" or "EPLHb"
@@ -93,16 +93,17 @@ def setup_model(env, pid_params, model_type="PID", device="cpu"):
         is_double=pid_params["is_double"],
         optimal_model=None,
         policy_evaluation=pid_params["policy_evaluation"],
-        replay_buffer_class=ExtendedReplayBuffer,
     )
 
     if model_type_upper == "PID":
         common_kwargs["buffer_size"] = pid_params["replay_memory_size"]
+        common_kwargs["replay_buffer_class"] = ExtendedReplayBuffer
         model = PID_DQN(**common_kwargs)
     elif model_type_upper == "EPLHB":
         common_kwargs["buffer_size"] = pid_params["buffer_size"]
         common_kwargs["optimizer_kwargs"] = optimizer_kwargs
         common_kwargs["optimize_memory_usage"] = False
+        common_kwargs["replay_buffer_class"] = OnlineReplayBuffer
         model = EPLHb_DQN(**common_kwargs)
         # Set additional parameters for EPLHb
         if hasattr(model, 'l2_lambda'):
@@ -243,25 +244,25 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
         enl_count = 0
         z_prev = 0.0
 
-        # Make changes for continual learning
-        if trial_idx >= change_start and (trial_idx - change_start) % change_interval == 0:
-            if pairing_change:
-                # Change pairing type randomly
-                env_params["pairing"] = random.choice(['reward', 'punish'])
-                print(f"Changing pairing to {env_params['pairing']} at trial {trial_idx}")
-            else:
-                if difficulty_change == "increase":
-                    env_params["omission_prob"] = min(0.1, env_params["omission_prob"] + 0.1)
-                elif difficulty_change == "decrease":
-                    env_params["omission_prob"] = max(0.0, env_params["omission_prob"] - 0.1)
-                elif difficulty_change == "random":
-                    env_params["omission_prob"] = random.choice(np.arange(0.0, 0.9, 0.1))
-                elif difficulty_change == "bandit":
-                    # make omission_prob switch from 0.2 to 0.8 or vice versa every 10 trials
-                    if trial_idx % 10 == 0 and env_params["omission_prob"] == 0.2:
-                        env_params["omission_prob"] = 0.8
-                    elif trial_idx % 10 == 0 and env_params["omission_prob"] == 0.8:
-                        env_params["omission_prob"] = 0.2
+        # # Make changes for continual learning
+        # if trial_idx >= change_start and (trial_idx - change_start) % change_interval == 0:
+        #     if pairing_change:
+        #         # Change pairing type randomly
+        #         env_params["pairing"] = random.choice(['reward', 'punish'])
+        #         print(f"Changing pairing to {env_params['pairing']} at trial {trial_idx}")
+        #     else:
+        #         if difficulty_change == "increase":
+        #             env_params["omission_prob"] = min(0.1, env_params["omission_prob"] + 0.1)
+        #         elif difficulty_change == "decrease":
+        #             env_params["omission_prob"] = max(0.0, env_params["omission_prob"] - 0.1)
+        #         elif difficulty_change == "random":
+        #             env_params["omission_prob"] = random.choice(np.arange(0.0, 0.9, 0.1))
+        #         elif difficulty_change == "bandit":
+        #             # make omission_prob switch from 0.2 to 0.8 or vice versa every 10 trials
+        #             if trial_idx % 10 == 0 and env_params["omission_prob"] == 0.2:
+        #                 env_params["omission_prob"] = 0.8
+        #             elif trial_idx % 10 == 0 and env_params["omission_prob"] == 0.8:
+        #                 env_params["omission_prob"] = 0.2
     
         # Run one trial
         while not done:
