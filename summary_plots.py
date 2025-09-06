@@ -300,8 +300,14 @@ def plot_pid_results(root_dir="PID-results",
 
     # Anticipatory Licks
     for (kd, omit, max_b, num_r), ant_licks_sessions in sorted_licks:
-        standard_length = 600
-        fixed_sessions = [np.pad(s, (0, standard_length - len(s)), mode='constant') if len(s) < standard_length else s[:standard_length] for s in ant_licks_sessions]
+        # Determine standard_length from the first session's length
+        if len(ant_licks_sessions) == 0:
+            continue  # skip if no sessions
+        standard_length = len(ant_licks_sessions[0])
+        fixed_sessions = [
+            np.pad(s, (0, standard_length - len(s)), mode='constant') if len(s) < standard_length else s[:standard_length]
+            for s in ant_licks_sessions
+        ]
         ant_licks_sessions_array = np.stack(fixed_sessions)
         avg = np.mean(ant_licks_sessions_array, axis=0)
         sem = np.std(ant_licks_sessions_array, axis=0) / np.sqrt(ant_licks_sessions_array.shape[0])
