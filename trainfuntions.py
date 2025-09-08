@@ -154,7 +154,6 @@ def setup_buffer(model, env_type, env, warmup_steps=10000):
 
 
 
-
 def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
                               fix_source_weights=0,
                               change_start=0,
@@ -355,12 +354,16 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
                 print(f"ENL break after {enl_count} steps, retraining with different seed...")
                 return recorder, retrain
         
-        # Bootstrapping: collect final step indices (like in PID-Operant.py)
+        # Bootstrapping: collect final step indices (like in PID-Operant-Batch.py)
         final_indices.append(trial_inds[-1])
         
         # Make dynamic to adjust for batch size vs. available trials to pull from
-        k = min(len(final_indices), pid_params["batch_size"])
-        n_recent = min(len(final_indices), 10)  # Use last 10 trials as recent
+        # Use max_batch_size and num_recent from env_params (like PID-Operant-Batch.py)
+        max_batch_size = pid_params.get("max_batch_size", 10)
+        num_recent = pid_params.get("num_recent", 5)
+        
+        k = min(len(final_indices), max_batch_size)
+        n_recent = min(len(final_indices), num_recent)
         recent = final_indices[-n_recent:]
         remaining = final_indices[:-n_recent]
         needed = k - len(recent)
@@ -370,12 +373,15 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
             sampled = []
         batch_idxs = recent + sampled
         
+        if print_status and trial_idx % 10 == 0:  # Print every 10 trials to avoid spam
+            print(f"Trial {trial_idx}: batch_idxs={batch_idxs} (k={k}, recent={len(recent)}, sampled={len(sampled)})")
+        
         # Do training step using batch_idxs
         model.train(gradient_steps=gradient_steps, batch_idxs=batch_idxs)
         
         # Restore original buffer to keep accumulating long-term experience
-        if orig_buffer is not None:
-            model.replay_buffer = orig_buffer
+        # if orig_buffer is not None:
+        #     model.replay_buffer = orig_buffer
     
     print(f"Operant environment training complete! Trained for {num_trials} trials.")
     pbar.close()

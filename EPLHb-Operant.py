@@ -41,13 +41,17 @@ operant_session_params = {
     "enl_punish_scale": 0.1,
 
     "dt":               0.1,          # 100 ms
+
+    "continual_learning": True,
+    "change_start": 200,
+    "change_interval": 50,
 }
 
 operant_pid_params = {
     "learning_rate": 1e-3,
-    "eplhb_lr": 1e-2,
+    "eplhb_lr": 0.0,
     "coeff_lr": 0.0,
-    "initial_eplhb_coeff": -0.3,
+    "initial_eplhb_coeff": 0.0,
 
     "rnn_type": "GRU",  # Options: "RNN", "GRU", "LSTM"
     "l2_lambda": 0.0,  # L2 regularization strength for EPLHb weights
@@ -80,6 +84,10 @@ operant_pid_params = {
     "beta": 0.95,
     "d_tau": 1,
     "tabular_d": False,
+
+    # Batch sampling parameters (like PID-Operant-Batch.py)
+    "max_batch_size":   10,            # max replay buffer space
+    "num_recent":       7,            # number of consecutive recent trials to fill replay buffer
 }
 
 # ============================================================================
@@ -88,13 +96,14 @@ operant_pid_params = {
 def setup_operant_environment():
     """Setup operant learning environment"""
     env = OperantLearning(
-            pairing=operant_session_params["pairing"],
-            omission_prob=operant_session_params["omission_prob"],
-            enl_duration=operant_session_params["enl_duration"],
-            action_cost=operant_session_params["action_cost"],
-            enl_penalty=operant_session_params["enl_penalty"],
-        reward_decay=True,
-        reward_decay_time=2.0,
+        pairing=operant_session_params["pairing"],
+        omission_prob=operant_session_params["omission_prob"],
+        enl_duration=operant_session_params["enl_duration"],
+        action_cost=operant_session_params["action_cost"],
+        enl_penalty=operant_session_params["enl_penalty"],
+        continual_learning=operant_session_params["continual_learning"],
+        change_start=operant_session_params["change_start"],
+        change_interval=operant_session_params["change_interval"],
         print_status=False,
     )
     return env
@@ -149,14 +158,6 @@ def run_operant_training():
     print(f"\nSetting up operant environment...")
     env = setup_operant_environment()
     
-    # Setup model
-    print(f"\nSetting up EPLHb model...")
-    model, gain_adapter = setup_EPLHb_model(env, operant_pid_params, device="cpu")
-    
-    # Setup buffer
-    print(f"\nSetting up replay buffer...")
-    orig_buffer = setup_buffer(model, "operant", env)
-    
     print("\nTraining setup complete!")
     
     # ============================================================================
@@ -174,8 +175,13 @@ def run_operant_training():
         set_global_seeds(new_seed)
         operant_pid_params["seed"] = new_seed
 
-        # Recreate model with new seed
+        # Setup model with new seed
+        print(f"\nSetting up EPLHb model with seed {new_seed}...")
         model, gain_adapter = setup_EPLHb_model(env, operant_pid_params, device="cpu")
+        
+        # Setup buffer for this model
+        print(f"\nSetting up replay buffer...")
+        orig_buffer = setup_buffer(model, "operant", env)
         
         # Train on operant environment
         recorder, retrain = train_operant_environment(
