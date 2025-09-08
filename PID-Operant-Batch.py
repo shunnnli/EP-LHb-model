@@ -378,7 +378,7 @@ if __name__ == "__main__":
                 # Plot and save summary figure
                 save_name = f"kd_{kd}_omit_{omit}_maxB_{max_b}_numR_{num_r}_seed_{pp['seed']}.png"
                 plot_figure(rec, dt=sp["dt"], pre_steps=sp["pre_steps"], post_steps=sp["post_steps"],
-                            save=True, save_path=os.path.join(save_dir, save_name))
+                            save=False, save_path=os.path.join(save_dir, save_name))
 
                 # Store both params and recorder
                 results[(kd, omit, max_b, num_r, r)] = {
@@ -390,9 +390,9 @@ if __name__ == "__main__":
                 }
 
             # Save everything
-            result_file = f"results_Kd_{kd}_omit_{omit}_maxB_{max_b}_numR_{num_r}.pkl"
-            with open(os.path.join(save_dir, result_file), "wb") as f:
-                pickle.dump(results, f)
+            # result_file = f"results_Kd_{kd}_omit_{omit}_maxB_{max_b}_numR_{num_r}.pkl"
+            # with open(os.path.join(save_dir, result_file), "wb") as f:
+            #     pickle.dump(results, f)
 
     
 

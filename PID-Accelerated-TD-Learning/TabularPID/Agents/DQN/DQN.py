@@ -332,15 +332,18 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             self.policy.optimizer.zero_grad()
             # Compute gradients for main network
             final_loss.backward(retain_graph=True)
+            
             # Compute gradients for eplhb network (this will add to existing gradients)
-            if hasattr(self.policy.q_net, 'eplhb'):
-                eplhb_loss.backward()
+            # if hasattr(self.policy.q_net, 'eplhb'):
+            #     eplhb_loss.backward()
+            # if hasattr(self.policy.q_net, 'eplhb'):
+            #     th.nn.utils.clip_grad_norm_(self.policy.q_net.eplhb.parameters(), 1.0)
+            #     if hasattr(self.policy.q_net, 'eplhb_coeff_raw'):
+            #         th.nn.utils.clip_grad_norm_([self.policy.q_net.eplhb_coeff_raw], 0.1)
+
             # Apply gradient clipping to all parameters
             th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
-            if hasattr(self.policy.q_net, 'eplhb'):
-                th.nn.utils.clip_grad_norm_(self.policy.q_net.eplhb.parameters(), 1.0)
-                if hasattr(self.policy.q_net, 'eplhb_coeff_raw'):
-                    th.nn.utils.clip_grad_norm_([self.policy.q_net.eplhb_coeff_raw], 0.1)
+            
             # Update all parameters with the optimizer
             self.policy.optimizer.step()
 

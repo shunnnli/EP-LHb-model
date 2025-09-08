@@ -73,7 +73,7 @@ operant_pid_params = {
     "dump_buffer": False,
     "is_double": False,
     "policy_evaluation": False,
-    "seed": 12242,
+    "seed": 1242,
 
     "kp": 1.0,
     "ki": 0.0,
