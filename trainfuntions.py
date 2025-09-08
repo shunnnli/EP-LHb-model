@@ -357,6 +357,147 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
     pbar.close()
     return recorder, retrain
 
+def train_PID_operant_environment(model, env, env_params, pid_params,
+                                  fix_source_weights=0,
+                                  print_status=True):
+    """Train on PID operant environment (exactly matching PID-Operant.py)"""
+    
+    print(f"Training on PID operant environment")
+    
+    # Set up logging
+    # SB3 will no longer spam stdout
+    model.set_logger(configure(None, []))
+    recorder = SessionRecorder()
+
+    # epsilon decay params
+    max_num_iters = 40000
+    decay_trials = int(pid_params["exploration_fraction"] * max_num_iters)
+
+    # --- Main training loop with tqdm bar ---
+    num_trials = env_params["num_trials"]
+    pbar = tqdm(total=num_trials,
+                desc=f"Trials (kd={pid_params['kd']}, omit={env_params['omission_prob']}, seed={pid_params['seed']})",
+                unit="trial")
+    retrain = False
+    
+
+    obs, _ = env.reset()
+    trial_idx = 0
+    eps = pid_params["initial_eps"]
+    enl_count = 0
+    final_indices = []
+    # — prime the recorder so rec._prev_obs isn't None on step 0 —
+    recorder._prev_obs = obs
+
+    while trial_idx < num_trials:
+        # reset RNN state
+        model.policy.q_net.reset_hidden(batch_size=env_params["batch_size"])
+        done = False
+        trial_timesteps = 0
+        z_prev = 0.0
+        trial_inds = []
+
+        # update env.trial count
+        env.trial_count = trial_idx
+
+        # run one trial
+        while not done:
+            # set exploration rate
+            model.exploration_rate = eps
+            model.logger.record("rollout/exploration_rate", eps)
+
+            # act
+            action, _ = model.predict(obs, deterministic=False)
+            next_obs, reward, _, _, info = env.step(action)
+            done = info["done"]
+            outcome = info["outcome"]
+
+            # update gains and sync networks
+            model._on_step()
+            trial_timesteps += 1
+
+            # calcualte d and z updates for the replay buffer
+            with torch.no_grad():
+                # make observation tensor
+                obs_t  = torch.tensor(obs,  device=model.device, dtype=torch.float32).unsqueeze(0)
+                next_t = torch.tensor(next_obs, device=model.device, dtype=torch.float32).unsqueeze(0)
+
+                # get d update
+                if model.tabular_d:
+                    d_update = model.gain_adapter.get_d_update(obs_t, next_t)
+                else:
+                    d_out = model.d_net(obs_t) # [1, n_actions]
+                    d_update = d_out[0, action].item()  # get the D update for the action taken
+
+                # get your PID gains α, β (and kp,ki,kd if you want)
+                a_t      = torch.tensor([[int(action)]], dtype=torch.long, device=model.device)
+                _, _, _, _, beta = model.gain_adapter.get_gains(obs_t, a_t, None)
+                q_curr   = model.policy.q_net(obs_t)[0, action].item()
+                q_next   = model.policy.q_net_target(next_t).max(dim=1)[0].item()
+                td_err   = reward + (0.0 if done else model.gamma * q_next) - q_curr
+                z_update = beta * z_prev + model.gain_adapter.alpha * td_err
+                _        = model.policy.q_net(obs_t)[0, int(action)].item()
+                _        = model.policy.q_net(next_t)[0, int(action)].item()
+
+            # add to the replay buffer
+            model.replay_buffer.add(obs=np.array(obs),
+                                    next_obs=np.array(next_obs),
+                                    action=np.array([action]),
+                                    reward=np.array([reward], dtype=np.float32),
+                                    done=done,
+                                    infos=[info],
+                                    d=np.array([d_update], dtype=np.float32),
+                                    z=np.array([z_update], dtype=np.float32),
+                                    )
+            
+            # record current trial idx within buffer
+            idx = (model.replay_buffer.pos - 1) % model.replay_buffer.buffer_size
+            trial_inds.append(idx)
+        
+            # record every timestep in the session trace
+            recorder.record_env_step(trial_idx, action, reward, next_obs, info, model=model)
+            # update obs, z_prev
+            obs, z_prev = next_obs, z_update
+
+        # update exploration rate upon trial completion
+        if outcome == "trial_end":
+            trial_idx += 1  # update trial index
+            enl_count = 0   # reset ENL count
+            frac = min(1.0, trial_idx / max(1, decay_trials))
+            eps = pid_params["initial_eps"] + frac * (pid_params["minimum_eps"] - pid_params["initial_eps"])
+            pbar.update(1)
+        else:
+             # punish if stuck in ENL for > threshold steps then force trial end
+             enl_count += 1
+             reward -= max(enl_count - env_params["enl_threshold"], 0) * env_params["enl_punish_scale"]
+             if enl_count > 500:
+                retrain = True
+                print(f"ENL break after {enl_count} steps, retraining with different seed...")
+                return recorder, retrain, True # return True to indicate retraining
+             
+        # bootstrapping: collect final step indices
+        final_indices.append(trial_inds[-1])
+        # make dynamic to adjust for batch size vs. available trials to pull from
+        k = min(len(final_indices), env_params["max_batch_size"])
+        n_recent = min(len(final_indices), env_params["num_recent"])
+        recent = final_indices[-n_recent:]
+        remaining = final_indices[:-n_recent]
+        needed = k - len(recent)
+        if needed > 0 and remaining:
+            sampled = random.sample(remaining, min(needed, len(remaining)))
+        else:
+            sampled = []
+        batch_idxs = recent + sampled
+
+    
+        # train
+        model.train(gradient_steps=env_params["gradient_steps"], batch_idxs=batch_idxs)
+
+
+    pbar.close()
+
+    return recorder, retrain, False # return False to indicate no retraining
+
 
 
 

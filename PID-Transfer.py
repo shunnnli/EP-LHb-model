@@ -1,3 +1,9 @@
+# to-do
+# implement matrix functionality to test kd, omit, max_b, num_recent, etc
+# implement saving/plot functionality
+
+
+
 #!/usr/bin/env python3
 import os, sys, importlib
 repo_path = os.path.abspath("./PID-Accelerated-TD-Learning")
@@ -24,68 +30,69 @@ from recorder import SessionRecorder
 import matplotlib.pyplot as plt
 import random
 
-from trainfuntions import set_global_seeds, setup_model, setup_buffer, train_operant_environment, train_gym_environment, transfer_weights
+from trainfuntions import set_global_seeds, setup_model, setup_buffer, train_PID_operant_environment, train_gym_environment, transfer_weights
 
 seed = 12242
 
 # ============================================================================
-# OPERANT ENVIRONMENT PARAMETERS (exactly matching EPLHb-Operant.py)
+# OPERANT ENVIRONMENT PARAMETERS (exactly matching PID-Operant.py)
 # ============================================================================
 operant_session_params = {
     "pairing":          'reward',
-    "num_trials":       1000,
-    "pre_steps":        10,           # 1 s @ 100 ms
-    "post_steps":       40,           # 5 s @ 100 ms
-    "enl_duration":     (2.0, 4.0),   # seconds
-    "tau_on":           0.01,         # 10 ms
-    "tau_off":          0.1,          # 100 ms
-
-    "omission_prob":    0.05,
+    "num_trials":       10,
+    "pre_steps":        10,
+    "post_steps":       40,
+    "enl_duration":     (2.0, 4.0),
+    "tau_on":           0.01,
+    "tau_off":          0.1,
+    "omission_prob":    0.2,
     "action_cost":      0.1,
     "enl_penalty":      0.2,
-    "enl_threshold":    200,          # for accumulated & consecutive ENL licks
-    "enl_punish_scale": 0.1,
-
-    "dt":               0.1,          # 100 ms
+    "enl_threshold":    200,
+    "enl_punish_scale": 0.5,
+    "gradient_steps":   10,
+    "gamma":            0.95,
+    "batch_training":   False,
+    "batch_size":       1, 
+    "max_batch_size":   5,   # max replay buffer space
+    "num_recent":       1,   # number of consecutive recent trials to fill replay buffer. ex. 5 num_recent, means 5 random old trials in size 10 replay buffer
+    "buffer_size":      1,
+    "dt":               0.1,
+    "continual_learning": True,
+    "change_start":     200,
+    "change_interval":  50,
 }
 
 operant_pid_params = {
-    "learning_rate": 1e-3,
-    "eplhb_lr": 1e-2,
-    "coeff_lr": 0.0,
-    "initial_eplhb_coeff": -0.3,
-
-    "rnn_type": "GRU",  # Options: "RNN", "GRU", "LSTM"
-    "l2_lambda": 0.0,  # L2 regularization strength for EPLHb weights
-
-    "batch_training": False,
-    "batch_size": 64 if False else 1,
-    "buffer_size": 100_000 if False else 1,
-    "tau": 1,
-    "gamma": 0.95,
-    "gradient_steps": 10,
-    "train_freq": 1,
+    "kp":                   1.0,
+    "ki":                   0.0,
+    "kd":                   0,
+    "meta_lr":              0,
+    "meta_lr_d":            0,
+    "epsilon_gain":         0.1,
+    "alpha":                0.05,
+    "beta":                 0.95,
+    "d_tau":                1,
+    "tabular_d":            False,
+    "learning_rate":        1e-3,
+    "replay_memory_size":   operant_session_params["buffer_size"],
+    "batch_size":           operant_session_params["batch_size"],
+    "tau":                  1,
+    "gamma":                operant_session_params["gamma"],
+    "gradient_steps":       1,
+    "train_freq":           1,
     "target_update_interval": 10,
-    
-    "initial_eps": 0.1,
-    "exploration_fraction": 0.5,
-    "minimum_eps": 0.05,
-    "learning_starts": 1,
-    "inner_size": 64,
-    "dump_buffer": False,
-    "is_double": False,
-    "policy_evaluation": False,
-    "seed": seed,
-
-    "kp": 1.0,
-    "ki": 0.0,
-    "kd": 0.0,
-    "meta_lr": 0,
-    "epsilon_gain": 0.1,
-    "alpha": 0.05,
-    "beta": 0.95,
-    "d_tau": 1,
-    "tabular_d": False,
+    "initial_eps":          0.1,
+    "exploration_fraction": 0.001,
+    "minimum_eps":          0.05,
+    "learning_starts":      1000,
+    "inner_size":           64,
+    "dump_buffer":          False,
+    "is_double":            False,
+    "policy_evaluation":    False,
+    "seed":                 26,
+    "rnn_type": "GRU",  # Options: "RNN", "GRU", "LSTM". Change as needed.
+    "l2_lambda": 1e-6,  # L2 regularization strength for EPLHb weights
 }
 
 # ============================================================================
@@ -174,7 +181,7 @@ def setup_environment(env_type):
 # Weight transfer functions
 # ============================================================================
 def save_and_plot_results(env_type, env_params, pid_params,
-                        recorder=None, reward_history=None, 
+                        recorder=None, stuck_counts=None, reward_history=None, 
                         save=True, plot=True):
     """Save results and generate plots"""
     print(f"\n{'='*60}")
@@ -266,7 +273,9 @@ def run_transfer_learning():
     print(f"PHASE 1: Training on {transfer_params['source_env']} environment")
     print(f"{'='*60}")
     
+    source_model, _ = setup_model(source_env, source_pid_params, model_type="PID")
     source_orig_buffer = setup_buffer(source_model, transfer_params['source_env'], source_env)
+    stuck_counts = 0
     if transfer_params['source_env'] == 'operant':
         retrain = True
         while retrain:
@@ -275,14 +284,17 @@ def run_transfer_learning():
             set_global_seeds(new_seed)
             source_pid_params["seed"] = new_seed
 
-            source_model, _ = setup_model(source_env, source_pid_params)
-            source_recorder, retrain = train_operant_environment(source_model, source_env, source_env_params, source_pid_params, source_orig_buffer)
+            source_model, _ = setup_model(source_env, source_pid_params, model_type="PID")
+            source_recorder, retrain, got_stuck = train_PID_operant_environment(source_model, source_env, source_env_params, source_pid_params)
+            if got_stuck:
+                stuck_counts += 1
+
     else:
         source_recorder = None
         print("Source environment training skipped (not operant)")
 
     # Plot results from source environment
-    save_and_plot_results(transfer_params['source_env'], source_env_params, source_pid_params, recorder=source_recorder, save=False, plot=True)
+    save_and_plot_results(transfer_params['source_env'], source_env_params, source_pid_params, recorder=source_recorder, stuck_counts=stuck_counts, save=False, plot=True)
     
     # ============================================================================
     # PHASE 2: TRANSFER WEIGHTS TO TARGET MODEL
@@ -292,7 +304,7 @@ def run_transfer_learning():
     print(f"{'='*60}")
     
     # Setup target model
-    target_model, _ = setup_model(target_env, target_pid_params)
+    target_model, _ = setup_model(target_env, target_pid_params, model_type="PID")
 
     # Use projection layer for weight transfer to handle different observation space sizes
     transfer_weights(source_model, target_model, use_projection=True)
@@ -334,3 +346,4 @@ def run_transfer_learning():
 # ============================================================================
 if __name__ == "__main__":
     run_transfer_learning()
+
