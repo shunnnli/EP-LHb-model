@@ -295,19 +295,19 @@ class EPLHbNetwork(QNetwork):
 
         # --- NEW: EPLHb MLP ---
         # input is [rnn_hidden + Q-MLP pre-output], map to a scalar
-        class MeanLayer(nn.Module):
-            def forward(self, x):
-                return x.mean(dim=1, keepdim=True)
         self.eplhb = nn.Sequential(
             nn.Linear(rnn_hidden_size + 1, self.eplhb_hidden_dim),
             nn.ReLU(),
-            MeanLayer()
+            nn.Linear(self.eplhb_hidden_dim, 1)  # Proper output layer instead of MeanLayer
         )
         
-        # Initialize EPLHb weights with small values to prevent large outputs
-        for layer in self.eplhb:
+        # Initialize EPLHb weights with reasonable values
+        for i, layer in enumerate(self.eplhb):
             if isinstance(layer, nn.Linear):
-                nn.init.xavier_uniform_(layer.weight, gain=0.1)  # Small gain
+                if i == 0:  # First layer
+                    nn.init.xavier_uniform_(layer.weight, gain=1.0)  # Normal gain
+                else:  # Output layer
+                    nn.init.xavier_uniform_(layer.weight, gain=0.5)  # Smaller gain for output
                 nn.init.constant_(layer.bias, 0.0)
         
         # Add input normalization layer for RNN input
