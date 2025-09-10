@@ -204,7 +204,7 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
         q_net = model.policy.q_net
         
         # Manage network freezing for the first n trials
-        if 1 > 0:  # Only do weight freezing if actually needed
+        if fix_source_weights > 0:  # Only do weight freezing if actually needed
             if trial_idx < fix_source_weights:
                 if not phase1_printed:
                     print(f"\n--- Phase 1: Freezing transferred weights for first {fix_source_weights} trials ---")

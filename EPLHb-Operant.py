@@ -49,9 +49,9 @@ operant_session_params = {
 
 operant_pid_params = {
     "learning_rate": 1e-3,
-    "eplhb_lr": 0.0,
-    "coeff_lr": 0.0,
-    "initial_eplhb_coeff": 0.0,
+    "eplhb_lr": 1e-2,
+    "coeff_lr": 1e-5,
+    "initial_eplhb_coeff": -1.0,
 
     "rnn_type": "GRU",  # Options: "RNN", "GRU", "LSTM"
     "l2_lambda": 0.0,  # L2 regularization strength for EPLHb weights

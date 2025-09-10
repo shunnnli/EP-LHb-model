@@ -330,16 +330,32 @@ class EPLHb_DQN(OffPolicyAlgorithm):
 
             # Optimize both networks together
             self.policy.optimizer.zero_grad()
-            # Compute gradients for main network
+            
+            # Compute gradients for main network (excluding EPLHb parameters)
             final_loss.backward(retain_graph=True)
             
-            # Compute gradients for eplhb network (this will add to existing gradients)
-            # if hasattr(self.policy.q_net, 'eplhb'):
-            #     eplhb_loss.backward()
-            # if hasattr(self.policy.q_net, 'eplhb'):
-            #     th.nn.utils.clip_grad_norm_(self.policy.q_net.eplhb.parameters(), 1.0)
-            #     if hasattr(self.policy.q_net, 'eplhb_coeff_raw'):
-            #         th.nn.utils.clip_grad_norm_([self.policy.q_net.eplhb_coeff_raw], 0.1)
+            # Compute gradients for EPLHb network only
+            if hasattr(self.policy.q_net, 'eplhb'):
+                # Get EPLHb parameters
+                eplhb_params = list(self.policy.q_net.eplhb.parameters())
+                if hasattr(self.policy.q_net, 'eplhb_coeff_raw'):
+                    eplhb_params.append(self.policy.q_net.eplhb_coeff_raw)
+                
+                # Compute gradients only for EPLHb parameters
+                eplhb_grads = th.autograd.grad(
+                    eplhb_loss, eplhb_params, retain_graph=True, create_graph=False, allow_unused=True
+                )
+                
+                # Manually set gradients for EPLHb parameters
+                for param, grad in zip(eplhb_params, eplhb_grads):
+                    if grad is not None:  # Only update if gradient was computed
+                        if param.grad is not None:
+                            param.grad += grad
+                        else:
+                            param.grad = grad
+                
+                # Apply gradient clipping to EPLHb parameters
+                th.nn.utils.clip_grad_norm_(eplhb_params, 1.0)
 
             # Apply gradient clipping to all parameters
             th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
