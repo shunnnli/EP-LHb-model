@@ -161,7 +161,7 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
                               pairing_change=False,
                               difficulty_change="increase",
                               print_status=True):
-    """Train on operant environment (exactly matching EPLHb-Operant.py)"""
+    """Train on operant environment (matching PID-Operant-Batch.py structure)"""
 
     print(f"Training on operant environment")
     
@@ -184,11 +184,9 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
     # Start training
     obs, _ = env.reset()
     trial_idx = 0
+    enl_count = 0
     eps = eps_start
     recorder._prev_obs = obs
-    
-        # Track indices for batch sampling (like in PID-Operant.py)
-    trial_inds = []
     final_indices = []
     
     # Phase printing flags
@@ -206,34 +204,31 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
         q_net = model.policy.q_net
         
         # Manage network freezing for the first n trials
-        if trial_idx < fix_source_weights:
-            if print_status and not phase1_printed:
-                print(f"\n--- Phase 1: Freezing transferred weights for first {fix_source_weights} trials ---")
-                phase1_printed = True
-            # Freeze transferred weights (RNN, MLP body, EPLHb)
-            for name, param in q_net.named_parameters():
-                if any(layer in name for layer in ['rnn', 'eplhb', 'eplhb_coeff_raw']):
-                    param.requires_grad = False
-                elif 'post_rnn' in name and not name.endswith('.weight') and not name.endswith('.bias'):
-                    # Freeze MLP body layers (all but the last output layer)
-                    param.requires_grad = False
-        
-            # Create optimizer that only manages unfrozen parameters
-            model.policy.optimizer = optim.Adam(
-                filter(lambda p: p.requires_grad, q_net.parameters()), 
-                lr=pid_params['learning_rate']
-            )
-        
-        if trial_idx >= fix_source_weights:
-            if print_status and not phase2_printed:
-                print(f"\n--- Phase 2: Unfreezing all weights to fine-tune entire network ---")
-                phase2_printed = True
-            # Unfreeze all parameters
-            for param in q_net.parameters():
-                param.requires_grad = True
+        if 1 > 0:  # Only do weight freezing if actually needed
+            if trial_idx < fix_source_weights:
+                if not phase1_printed:
+                    print(f"\n--- Phase 1: Freezing transferred weights for first {fix_source_weights} trials ---")
+                    phase1_printed = True
+                    # Freeze transferred weights (RNN, MLP body, EPLHb)
+                    for name, param in q_net.named_parameters():
+                        if any(layer in name for layer in ['rnn', 'eplhb', 'eplhb_coeff_raw']):
+                            param.requires_grad = False
+                        elif 'post_rnn' in name and not name.endswith('.weight') and not name.endswith('.bias'):
+                            # Freeze MLP body layers (all but the last output layer)
+                            param.requires_grad = False
+                    
+                    # Create optimizer that only manages unfrozen parameters with correct learning rates
+                    rebuild_optimizer_with_correct_lr_groups(model, pid_params)
             
-            # Rebuild optimizer to manage all parameters
-            model.policy._build(model.lr_schedule)
+            elif trial_idx == fix_source_weights:  # Only transition once
+                if not phase2_printed:
+                    print(f"\n--- Phase 2: Unfreezing all weights to fine-tune entire network ---")
+                    phase2_printed = True
+                    # Unfreeze all parameters
+                    for param in q_net.parameters():
+                        param.requires_grad = True
+                    # Rebuild optimizer with correct learning rate groups
+                    rebuild_optimizer_with_correct_lr_groups(model, pid_params)
 
         if print_status:
             print(f"Trial {trial_idx+1}/{num_trials}, ε={eps:.3f}") 
@@ -242,59 +237,57 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
         model.policy.q_net.reset_hidden(batch_size=pid_params["batch_size"])
         done = False
         trial_timesteps = 0
-        enl_count = 0
+        trial_inds = [] # Reset trial indices for this trial
         z_prev = 0.0
-        
-        # Reset trial indices for this trial
-        trial_inds = []
+        env.trial_count = trial_idx
 
         # Make changes for continual learning
-        if change_interval > 0 and trial_idx >= change_start and (trial_idx - change_start) % change_interval == 0:
-            if pairing_change:
-                # Change pairing type randomly
-                env_params["pairing"] = random.choice(['reward', 'punish'])
-                print(f"Changing pairing to {env_params['pairing']} at trial {trial_idx}")
-            else:
-                if difficulty_change == "increase":
-                    env_params["omission_prob"] = min(0.1, env_params["omission_prob"] + 0.1)
-                elif difficulty_change == "decrease":
-                    env_params["omission_prob"] = max(0.0, env_params["omission_prob"] - 0.1)
-                elif difficulty_change == "random":
-                    env_params["omission_prob"] = random.choice(np.arange(0.0, 0.9, 0.1))
-                elif difficulty_change == "bandit":
-                    # make omission_prob switch from 0.2 to 0.8 or vice versa every 10 trials
-                    if trial_idx % 10 == 0 and env_params["omission_prob"] == 0.2:
-                        env_params["omission_prob"] = 0.8
-                    elif trial_idx % 10 == 0 and env_params["omission_prob"] == 0.8:
-                        env_params["omission_prob"] = 0.2
-    
-        # Run one trial
+        # if change_interval > 0 and trial_idx >= change_start and (trial_idx - change_start) % change_interval == 0:
+        #     if pairing_change:
+        #         # Change pairing type randomly
+        #         env_params["pairing"] = random.choice(['reward', 'punish'])
+        #         print(f"Changing pairing to {env_params['pairing']} at trial {trial_idx}")
+        #     else:
+        #         if difficulty_change == "increase":
+        #             env_params["omission_prob"] = min(0.1, env_params["omission_prob"] + 0.1)
+        #         elif difficulty_change == "decrease":
+        #             env_params["omission_prob"] = max(0.0, env_params["omission_prob"] - 0.1)
+        #         elif difficulty_change == "random":
+        #             env_params["omission_prob"] = random.choice(np.arange(0.0, 0.9, 0.1))
+        #         elif difficulty_change == "bandit":
+        #             # make omission_prob switch from 0.2 to 0.8 or vice versa every 10 trials
+        #             if trial_idx % 10 == 0 and env_params["omission_prob"] == 0.2:
+        #                 env_params["omission_prob"] = 0.8
+        #             elif trial_idx % 10 == 0 and env_params["omission_prob"] == 0.8:
+        #                 env_params["omission_prob"] = 0.2
+
+        # run one trial
         while not done:
-            # Set exploration rate
+            # set exploration rate
             model.exploration_rate = eps
             model.logger.record("rollout/exploration_rate", eps)
-            
-            # Act
+
+            # act
             action, _ = model.predict(obs, deterministic=False)
             next_obs, reward, _, _, info = env.step(action)
             done = info["done"]
             outcome = info["outcome"]
             
             # Punish if stuck in ENL for > threshold steps
-            enl_count = enl_count + 1 if outcome and "enl" in outcome else 0
-            reward -= max(enl_count - enl_threshold, 0) * enl_punish_scale
+            # enl_count = enl_count + 1 if outcome and "enl" in outcome else 0
+            # reward -= max(enl_count - enl_threshold, 0) * enl_punish_scale
             
             # Update gains and sync networks
             model._on_step()
             trial_timesteps += 1
-            
-            # Calculate d and z updates for replay buffer
+
+            # calcualte d and z updates for the replay buffer
             with torch.no_grad():
-                # Make observation tensor
-                obs_t = torch.tensor(obs, device=model.device, dtype=torch.float32).unsqueeze(0)
+                # make observation tensor
+                obs_t  = torch.tensor(obs,  device=model.device, dtype=torch.float32).unsqueeze(0)
                 next_t = torch.tensor(next_obs, device=model.device, dtype=torch.float32).unsqueeze(0)
-                
-                # Get the D update
+
+                # get d update
                 if model.tabular_d:
                     d_update = model.gain_adapter.get_d_update(obs_t, next_t)
                 else:
@@ -338,21 +331,24 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
             
             # Update obs, z_prev
             obs, z_prev = next_obs, z_update
-        
+
+        # update exploration rate upon trial completion
         if outcome == "trial_end":
             trial_idx += 1
+            pbar.update(1)
+            enl_count = 0
             # Compute step-based epsilon
             frac = min(1.0, trial_idx / max(1, decay_trials))
             eps = eps_start + frac * (eps_end - eps_start)
         else:
             # punish if stuck in ENL for > 200 steps
-            enl_count = enl_count + 1
-            reward -= max(enl_count - env_params["enl_threshold"], 0) * env_params["enl_punish_scale"]
+            enl_count += 1
+            reward -= max(enl_count - enl_threshold, 0) * enl_punish_scale
             # reset the seed and retrain if ENL > 1000 steps
             if enl_count > 500:
                 retrain = True
                 print(f"ENL break after {enl_count} steps, retraining with different seed...")
-                return recorder, retrain
+                return recorder, retrain, True
         
         # Bootstrapping: collect final step indices (like in PID-Operant-Batch.py)
         final_indices.append(trial_inds[-1])
@@ -385,7 +381,7 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
     
     print(f"Operant environment training complete! Trained for {num_trials} trials.")
     pbar.close()
-    return recorder, retrain
+    return recorder, retrain, False
 
 
 
@@ -598,6 +594,61 @@ def transfer_weights(source_model, target_model, use_projection=True):
             new_qnet.eplhb_coeff_raw.data.copy_(old_qnet.eplhb_coeff_raw.data)
             print("✓ EPLHb coefficient transferred successfully")
 
+
+
+def rebuild_optimizer_with_correct_lr_groups(model, pid_params):
+    """
+    Properly rebuild the optimizer with correct learning rate groups for EPLHb models.
+    This preserves the carefully tuned learning rates for different parameter groups.
+    """
+    from TabularPID.Agents.DQN.DQN_policy import EPLHbNetwork
+    
+    # Get the current learning rate schedule
+    main_lr = model.lr_schedule(1)
+    
+    # Extract the original learning rates from optimizer_kwargs
+    eplhb_lr = pid_params.get('eplhb_lr', 1e-4)
+    coeff_lr = pid_params.get('coeff_lr', 1e-5)
+    
+    # Get the optimizer class and kwargs
+    optimizer_class = model.policy.optimizer_class
+    optimizer_kwargs = model.policy.optimizer_kwargs.copy()
+    
+    # Separate parameters into groups
+    q_net = model.policy.q_net
+    if isinstance(q_net, EPLHbNetwork):
+        eplhb_params = list(q_net.eplhb.parameters())
+        # Only include eplhb_coeff_raw if coeff_lr > 0
+        if coeff_lr > 0:
+            eplhb_coeff_param = [q_net.eplhb_coeff_raw]
+        else:
+            eplhb_coeff_param = []
+    else:
+        eplhb_params = []
+        eplhb_coeff_param = []
+    
+    other_params = [
+        p for n, p in q_net.named_parameters()
+        if not n.startswith('eplhb.') and n != 'eplhb_coeff_raw'
+    ]
+    
+    # Create parameter groups with correct learning rates
+    param_groups = [
+        {'params': other_params, 'lr': main_lr},
+        {'params': eplhb_params, 'lr': eplhb_lr},
+    ]
+    
+    # Only add eplhb_coeff_param group if coeff_lr > 0
+    if coeff_lr > 0:
+        param_groups.append({'params': eplhb_coeff_param, 'lr': coeff_lr})
+    
+    # Create new optimizer with correct learning rate groups
+    model.policy.optimizer = optimizer_class(
+        param_groups,
+        **optimizer_kwargs,
+    )
+    
+    print(f"✓ Rebuilt optimizer with learning rates: main={main_lr:.2e}, eplhb={eplhb_lr:.2e}, coeff={coeff_lr:.2e}")
 
 
 def set_global_seeds(seed: int):

@@ -73,7 +73,7 @@ operant_pid_params = {
     "dump_buffer": False,
     "is_double": False,
     "policy_evaluation": False,
-    "seed": 1242,
+    "seed": 226,
 
     "kp": 1.0,
     "ki": 0.0,
@@ -86,8 +86,8 @@ operant_pid_params = {
     "tabular_d": False,
 
     # Batch sampling parameters (like PID-Operant-Batch.py)
-    "max_batch_size":   10,            # max replay buffer space
-    "num_recent":       7,            # number of consecutive recent trials to fill replay buffer
+    "max_batch_size":   5,            # max replay buffer space
+    "num_recent":       1,            # number of consecutive recent trials to fill replay buffer
 }
 
 # ============================================================================
@@ -169,9 +169,15 @@ def run_operant_training():
     
     # Training with retry logic for ENL breaks
     retrain = True
+    first_training = True
+
     while retrain:
-        # Set global seed for reproducibility (new seed for retry)
-        new_seed = random.randint(0, 10000)
+        if first_training:
+            new_seed = operant_pid_params["seed"]
+            first_training = False
+        else:
+            new_seed = random.randint(0, 10000)
+        
         set_global_seeds(new_seed)
         operant_pid_params["seed"] = new_seed
 
@@ -184,8 +190,9 @@ def run_operant_training():
         orig_buffer = setup_buffer(model, "operant", env)
         
         # Train on operant environment
-        recorder, retrain = train_operant_environment(
-            model, env, operant_session_params, operant_pid_params, orig_buffer
+        recorder, retrain, got_stuck = train_operant_environment(
+            model, env, operant_session_params, operant_pid_params, orig_buffer,
+            print_status=False
         )
         
         if retrain:

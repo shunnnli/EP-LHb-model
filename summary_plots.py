@@ -36,6 +36,8 @@ def extract_batch_data(batches):
                         kv[0][0]) # kd
     )
 
+    t_axis = None
+
     for idx, ((kd, omit, max_b, num_r), batch_data) in enumerate(sorted_items):
         all_rewards = []
         td_amplitudes = []  # List of np.arrays (one per session)

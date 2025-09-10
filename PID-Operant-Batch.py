@@ -27,7 +27,7 @@ from types import SimpleNamespace
 # session_params defined here
 base_session_params = {
     "pairing":          'reward',
-    "num_trials":       10,
+    "num_trials":       100,
     "pre_steps":        10,
     "post_steps":       40,
     "enl_duration":     (2.0, 4.0),
@@ -378,7 +378,7 @@ if __name__ == "__main__":
                 # Plot and save summary figure
                 save_name = f"kd_{kd}_omit_{omit}_maxB_{max_b}_numR_{num_r}_seed_{pp['seed']}.png"
                 plot_figure(rec, dt=sp["dt"], pre_steps=sp["pre_steps"], post_steps=sp["post_steps"],
-                            save=False, save_path=os.path.join(save_dir, save_name))
+                            save=False, save_path=os.path.join(save_dir, save_name), show=True)
 
                 # Store both params and recorder
                 results[(kd, omit, max_b, num_r, r)] = {
@@ -397,5 +397,5 @@ if __name__ == "__main__":
     
 
     print(f"\nAll sweeps completed. Results saved to {save_dir}")
-    plot_pid_results(results_root)
+    # plot_pid_results(results_root)
     print("Summary Plot Saved")
