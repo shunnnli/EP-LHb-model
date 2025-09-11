@@ -20,14 +20,14 @@ from recorder import SessionRecorder
 
 from OperantGym import OperantLearning
 from plotfunctions import plot_figure
-from trainfuntions import set_global_seeds, setup_EPLHb_model, setup_buffer, train_operant_environment
+from trainfuntions import set_global_seeds, setup_model, setup_buffer, train_operant_environment
 
 # ============================================================================
 # OPERANT ENVIRONMENT PARAMETERS
 # ============================================================================
 operant_session_params = {
     "pairing":          'reward',
-    "num_trials":       200,
+    "num_trials":       2,
     "pre_steps":        10,           # 1 s @ 100 ms
     "post_steps":       40,           # 5 s @ 100 ms
     "enl_duration":     (2.0, 4.0),   # seconds
@@ -183,7 +183,7 @@ def run_operant_training():
 
         # Setup model with new seed
         print(f"\nSetting up EPLHb model with seed {new_seed}...")
-        model, gain_adapter = setup_EPLHb_model(env, operant_pid_params, device="cpu")
+        model, gain_adapter = setup_model(env, operant_pid_params, device="cpu", model_type="EPLHb")
         
         # Setup buffer for this model
         print(f"\nSetting up replay buffer...")

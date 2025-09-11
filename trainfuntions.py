@@ -23,8 +23,11 @@ from recorder import SessionRecorder
 
 
 
-def setup_EPLHb_model(env, pid_params, device="cpu"):
-    """Setup EPLHb_DQN model with appropriate parameters"""
+def setup_model(env, pid_params, device="cpu", model_type="EPLHb"):
+    """
+    Setup a PID_DQN or EPLHb_DQN model with appropriate parameters.
+    model_type: "PID" or "EPLHb"
+    """
     # Gain adapter
     gain_adapter = SingleGainAdapter(
         kp=pid_params["kp"],
@@ -42,16 +45,18 @@ def setup_EPLHb_model(env, pid_params, device="cpu"):
         optimizer_class=optim.Adam,
         with_RNN_layer=True,
         rnn_type=pid_params["rnn_type"],
-        features_extractor_kwargs=dict(
-            initial_eplhb_coeff=pid_params["initial_eplhb_coeff"],
-        ),
     )
 
     # EPLHb-specific optimizer kwargs
-    optimizer_kwargs = dict(
-        eplhb_lr=pid_params["eplhb_lr"],
-        coeff_lr=pid_params["coeff_lr"],
-    )
+    optimizer_kwargs = None
+    if model_type.upper() == "EPLHB":
+        policy_kwargs["features_extractor_kwargs"] = dict(
+            initial_eplhb_coeff=pid_params["initial_eplhb_coeff"],
+        )
+        optimizer_kwargs = dict(
+            eplhb_lr=pid_params["eplhb_lr"],
+            coeff_lr=pid_params["coeff_lr"],
+        )
 
     # Prevent CUDA from being used (patch)
     if device == "cpu":
@@ -64,42 +69,76 @@ def setup_EPLHb_model(env, pid_params, device="cpu"):
         device = torch.device(device)
 
     # Set up the model
-    model = EPLHb_DQN(
-        pid_params['d_tau'],
-        pid_params['tabular_d'],
-        gain_adapter,
-
+    common_kwargs = dict(
+        d_tau=pid_params["d_tau"],
+        tabular_d=pid_params["tabular_d"],
+        gain_adapter=gain_adapter,
         policy="MlpPolicy",
         env=env,
-        learning_rate=pid_params['learning_rate'],
+        learning_rate=pid_params["learning_rate"],
         buffer_size=pid_params['buffer_size'],
         batch_size=pid_params['batch_size'],
-        tau=pid_params['tau'],
-        gamma=pid_params['gamma'],
-        gradient_steps=pid_params['gradient_steps'],
-        train_freq=pid_params['train_freq'],
-        target_update_interval=pid_params['target_update_interval'],
-        exploration_fraction=pid_params['exploration_fraction'],
-        exploration_initial_eps=pid_params['initial_eps'],
-        exploration_final_eps=pid_params['minimum_eps'],
-        optimize_memory_usage=False,
-        learning_starts=pid_params['learning_starts'],
+        tau=pid_params["tau"],
+        gamma=pid_params["gamma"],
+        gradient_steps=pid_params["gradient_steps"],
+        train_freq=pid_params["train_freq"],
+        target_update_interval=pid_params["target_update_interval"],
+        exploration_fraction=pid_params["exploration_fraction"],
+        exploration_initial_eps=pid_params["initial_eps"],
+        exploration_final_eps=pid_params["minimum_eps"],
+        learning_starts=pid_params["learning_starts"],
         tensorboard_log=None,
+        optimize_memory_usage=False,
         policy_kwargs=policy_kwargs,
-        optimizer_kwargs=optimizer_kwargs,
-        seed=pid_params['seed'],
+        seed=pid_params["seed"],
         device="cpu",
-        dump_buffer=pid_params['dump_buffer'],
-        is_double=pid_params['is_double'],
+        dump_buffer=pid_params["dump_buffer"],
+        is_double=pid_params["is_double"],
         optimal_model=None,
-        policy_evaluation=pid_params['policy_evaluation'],
-
+        policy_evaluation=pid_params["policy_evaluation"],
         replay_buffer_class=ExtendedReplayBuffer,
     )
-    
-    # Set additional parameters
-    if hasattr(model, 'l2_lambda'):
-        model.l2_lambda = pid_params["l2_lambda"]
+
+    if model_type.upper() == "EPLHB":
+        model = EPLHb_DQN(**common_kwargs, optimizer_kwargs=optimizer_kwargs)
+        # Set additional parameters
+        if hasattr(model, 'l2_lambda'):
+            model.l2_lambda = pid_params["l2_lambda"]
+    else:
+        model = PID_DQN(**common_kwargs)
+
+    # model = EPLHb_DQN(
+    #     pid_params['d_tau'],
+    #     pid_params['tabular_d'],
+    #     gain_adapter,
+
+    #     policy="MlpPolicy",
+    #     env=env,
+    #     learning_rate=pid_params['learning_rate'],
+    #     buffer_size=pid_params['buffer_size'],
+    #     batch_size=pid_params['batch_size'],
+    #     tau=pid_params['tau'],
+    #     gamma=pid_params['gamma'],
+    #     gradient_steps=pid_params['gradient_steps'],
+    #     train_freq=pid_params['train_freq'],
+    #     target_update_interval=pid_params['target_update_interval'],
+    #     exploration_fraction=pid_params['exploration_fraction'],
+    #     exploration_initial_eps=pid_params['initial_eps'],
+    #     exploration_final_eps=pid_params['minimum_eps'],
+    #     optimize_memory_usage=False,
+    #     learning_starts=pid_params['learning_starts'],
+    #     tensorboard_log=None,
+    #     policy_kwargs=policy_kwargs,
+    #     optimizer_kwargs=optimizer_kwargs,
+    #     seed=pid_params['seed'],
+    #     device="cpu",
+    #     dump_buffer=pid_params['dump_buffer'],
+    #     is_double=pid_params['is_double'],
+    #     optimal_model=None,
+    #     policy_evaluation=pid_params['policy_evaluation'],
+
+    #     replay_buffer_class=ExtendedReplayBuffer,
+    # )
     
     # Link adapter to model
     gain_adapter.set_model(model)
