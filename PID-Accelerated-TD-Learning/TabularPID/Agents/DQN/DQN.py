@@ -239,14 +239,16 @@ class EPLHb_DQN(OffPolicyAlgorithm):
         # Update learning rate according to schedule
         self._update_learning_rate(self.policy.optimizer)
 
-        # If we have an RNN AND the user passed seq_len, do truncated BPTT
+        # If we have an RNN AND seq_len is provided, do truncated BPTT
         is_recurrent = hasattr(self.policy.q_net, "reset_hidden")
-        use_bptt   = is_recurrent and seq_len is not None
+        use_bptt = is_recurrent and seq_len is not None
         if use_bptt:
             if batch_idxs is not None:
-                return self._train_recurrent(gradient_steps, batch_idxs)
+                # Use BPTT with specific batch indices
+                return self._train_recurrent(gradient_steps, batch_idxs=batch_idxs, seq_len=seq_len)
             else:
-                return self._train_recurrent(gradient_steps, batch_size, seq_len)
+                # Use BPTT with random sampling
+                return self._train_recurrent(gradient_steps, batch_size=batch_size, seq_len=seq_len)
 
         losses = []
         l2_lambda = getattr(self, 'l2_lambda', None)
@@ -409,11 +411,12 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             l2_lambda = getattr(self, 'policy_kwargs', {}).get('l2_lambda', 1e-4)
 
         for _ in range(gradient_steps):
-            # 1) sample a sequence of length seq_len
+            # 1) sample a sequence
             if batch_idxs is not None:
                 batch = self.replay_buffer.sample(
                     batch_idxs=batch_idxs,
                     env=self._vec_normalize_env,
+                    seq_len=seq_len,
                 )
             else:
                 batch = self.replay_buffer.sample(
@@ -450,6 +453,7 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             q_pred_seq = []
             target_seq = []
             eplhb_seq  = []
+            d_update_seq = []  # Store d_update values for auxiliary loss
 
             for t in range(L):
                 # current Q
@@ -487,6 +491,7 @@ class EPLHb_DQN(OffPolicyAlgorithm):
 
                 q_pred_seq.append(q_at.unsqueeze(1))     # list of [B,1]
                 target_seq.append(target_t.unsqueeze(1)) # list of [B,1]
+                d_update_seq.append(d_up.unsqueeze(1))   # list of [B,1] - store for auxiliary loss
                 z_prev = z_new
 
                 self.p_update = BR
@@ -503,12 +508,19 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             q_pred = th.cat(q_pred_seq, dim=1)         # [B, L]
             target = th.cat(target_seq, dim=1)         # [B, L]
             target = target.view_as(q_pred)   # reshape target to exactly q_pred's shape
+        
+            # Concatenate EPLHb outputs and d_update values for auxiliary loss
+            eplhb_concat = th.cat(eplhb_seq, dim=1)    # [B, L]
+            d_update_concat = th.cat(d_update_seq, dim=1)  # [B, L]
             
             # 6) one-shot loss over full sequence
             # q_pred_seq and target_seq are [B, L], so:
             td_error_seq = q_pred - target  # shape [B, L]
             base_loss = F.smooth_l1_loss(q_pred, target) # [B, L]
             noise_seq = th.randn_like(td_error_seq)
+
+            # Auxiliary loss: EPLHb should be similar to d_update value
+            d_update_loss = F.smooth_l1_loss(eplhb_concat, d_update_concat)
 
             # L2 regularization for EPLHb weights
             l2_penalty = 0.0
@@ -521,16 +533,42 @@ class EPLHb_DQN(OffPolicyAlgorithm):
                 + l2_penalty
             )
 
+            # Optimize both networks together (same as in regular train method)
             optim.zero_grad()
-            final_loss.backward()
-            th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
-            optim.step()
-
-            # Additional gradient clipping for EPLHb parameters
+            
+            # Compute gradients for main network (excluding EPLHb parameters)
+            final_loss.backward(retain_graph=True)
+            
+            # Compute gradients for EPLHb network only
             if hasattr(self.policy.q_net, 'eplhb'):
-                th.nn.utils.clip_grad_norm_(self.policy.q_net.eplhb.parameters(), 1.0)
+                # Get EPLHb parameters
+                eplhb_params = list(self.policy.q_net.eplhb.parameters())
+                if hasattr(self.policy.q_net, 'eplhb_coeff_raw'):
+                    eplhb_params.append(self.policy.q_net.eplhb_coeff_raw)
+                
+                # Compute gradients only for EPLHb parameters
+                eplhb_grads = th.autograd.grad(
+                    d_update_loss, eplhb_params, retain_graph=True, create_graph=False, allow_unused=True
+                )
+                
+                # Manually set gradients for EPLHb parameters
+                for param, grad in zip(eplhb_params, eplhb_grads):
+                    if grad is not None:  # Only update if gradient was computed
+                        if param.grad is not None:
+                            param.grad += grad
+                        else:
+                            param.grad = grad
+                
+                # Apply gradient clipping to EPLHb parameters
+                th.nn.utils.clip_grad_norm_(eplhb_params, 1.0)
                 if hasattr(self.policy.q_net, 'eplhb_coeff_raw'):
                     th.nn.utils.clip_grad_norm_([self.policy.q_net.eplhb_coeff_raw], 0.1)
+
+            # Apply gradient clipping to all parameters
+            th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
+            
+            # Update all parameters with the optimizer
+            optim.step()
 
             losses.append(final_loss.item())
 

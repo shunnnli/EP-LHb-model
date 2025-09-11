@@ -500,6 +500,7 @@ class ExtendedReplayBuffer(ReplayBuffer):
         batch_size: int = None,
         batch_idxs: List = None,
         env=None,
+        seq_len: int = None,
     ):
         # 1) Get idxs to sample - handle both calling conventions
         if batch_idxs is not None:
@@ -535,15 +536,43 @@ class ExtendedReplayBuffer(ReplayBuffer):
         # 4) Ensure correct shapes for batch and sequence
         # Determine batch (B) and sequence length (L)
         B = len(idxs)
-        L = 1
+        L = seq_len if seq_len is not None else 1
 
-        # Observations and next_observations -> [B, L, obs_dim]
-        for field in ('observations', 'next_observations'):
-            data[field] = data[field].reshape(B, L, -1)
+        # If seq_len is provided, we need to create sequences from the batch_idxs
+        if seq_len is not None and seq_len > 1:
+            # Create sequences by taking consecutive samples
+            # This assumes batch_idxs represents the starting indices of sequences
+            sequence_idxs = []
+            for start_idx in idxs:
+                # Create a sequence of length seq_len starting from start_idx
+                seq = np.arange(start_idx, start_idx + seq_len) % self.buffer_size
+                sequence_idxs.extend(seq)
+            
+            # Resample with the expanded indices
+            expanded_idxs = np.array(sequence_idxs, dtype=int)
+            base_batch = self._get_samples(expanded_idxs, env=env)
+            
+            # Reshape to [B, L, ...] format
+            for field in ('observations', 'next_observations'):
+                data[field] = getattr(base_batch, field).reshape(B, L, -1)
+            
+            for field in ('actions', 'rewards', 'dones'):
+                data[field] = getattr(base_batch, field).reshape(B, L)
+            
+            # Handle custom fields
+            batch_ds = th.as_tensor(self.ds[expanded_idxs], device=self.device).reshape(B, L)
+            batch_zs = th.as_tensor(self.zs[expanded_idxs], device=self.device).reshape(B, L)
+            data['ds'] = batch_ds
+            data['zs'] = batch_zs
+        else:
+            # Single timestep case (original behavior)
+            # Observations and next_observations -> [B, L, obs_dim]
+            for field in ('observations', 'next_observations'):
+                data[field] = data[field].reshape(B, L, -1)
 
-        # Actions, rewards, dones, ds, zs -> [B, L]
-        for field in ('actions', 'rewards', 'dones', 'ds', 'zs'):
-            data[field] = data[field].reshape(B, L)
+            # Actions, rewards, dones, ds, zs -> [B, L]
+            for field in ('actions', 'rewards', 'dones', 'ds', 'zs'):
+                data[field] = data[field].reshape(B, L)
 
         return SimpleNamespace(**data)
     

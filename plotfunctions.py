@@ -249,32 +249,36 @@ def plotLine(unique_omits, performance, ax=None):
     return ax
 
 
-def derivative_likelihood(eplhb_traces, td_traces=None, d_update=None, method="correlation"):
+def derivative_likelihood(eplhb_traces, td_traces=None, d_update=None, method="within_trial", 
+                         trial_TD_amplitude=None, trial_animal_sign_index=None):
     """
-    Compute trial-wise correlation between EP-LHb traces and the derivative of TD traces.
+    Compute correlation between EP-LHb traces and TD traces.
 
     Args:
         eplhb_traces (array-like, shape (num_trials, timesteps)): EP-LHb values.
         td_traces (array-like, optional): TD values, shape (num_trials, timesteps).
         d_update (array-like, optional): Precomputed derivative of TD, shape (num_trials, timesteps).
-        method (str): Currently only supports "correlation".
+        method (str): "within_trial" or "across_trial".
+        trial_TD_amplitude (array-like, optional): Precomputed TD amplitudes per trial.
+        trial_animal_sign_index (array-like, optional): Precomputed animal sign indices per trial.
 
     Returns:
-        np.ndarray: Correlation coefficients, shape (num_trials,)
+        np.ndarray: Correlation coefficients, shape (num_trials,) for within_trial, 
+                   scalar for across_trial
     """
     eplhb_traces = np.array(eplhb_traces)
 
-    if d_update is not None:  
-        # if d_update available, use it directly
-        td_derivative = np.array(d_update)
-    elif td_traces is not None:
-        td_traces = np.array(td_traces)
-        # numerical derivative along time axis
-        td_derivative = np.diff(td_traces, prepend=td_traces[:, [0]], axis=1)
-    else:
-        raise ValueError("Either td_traces or d_update must be provided.")
+    if method == "within_trial":
+        if d_update is not None:  
+            # if d_update available, use it directly
+            td_derivative = np.array(d_update)
+        elif td_traces is not None:
+            td_traces = np.array(td_traces)
+            # numerical derivative along time axis
+            td_derivative = np.diff(td_traces, prepend=td_traces[:, [0]], axis=1)
+        else:
+            raise ValueError("Either td_traces or d_update must be provided.")
 
-    if method == "correlation":
         num_trials = eplhb_traces.shape[0]
         corrs = np.empty(num_trials)
         for i in range(num_trials):
@@ -285,8 +289,22 @@ def derivative_likelihood(eplhb_traces, td_traces=None, d_update=None, method="c
             else:
                 corrs[i] = np.corrcoef(ep, td)[0, 1]
         return corrs
+        
+    elif method == "across_trial":
+        if trial_TD_amplitude is None or trial_animal_sign_index is None:
+            raise ValueError("trial_TD_amplitude and trial_animal_sign_index must be provided for across_trial method.")
+        
+        td_amplitudes = np.array(trial_TD_amplitude)
+        eplhb_amplitudes = np.array(trial_animal_sign_index)
+        
+        # Calculate correlation across trials
+        if np.std(td_amplitudes) == 0 or np.std(eplhb_amplitudes) == 0:
+            return np.nan
+        else:
+            return np.corrcoef(td_amplitudes, eplhb_amplitudes)[0, 1]
+    
     else:
-        raise NotImplementedError(f"Method '{method}' not implemented.")
+        raise NotImplementedError(f"Method '{method}' not implemented. Use 'within_trial' or 'across_trial'.")
     
 
 
@@ -641,12 +659,22 @@ def plot_figure(recorder, td_error_type='external',
     # plot correlation of EPLHb output and TD error
     if recorder.eplhb and hasattr(recorder, 'eplhb_out'):
         ax6 = fig.add_subplot(gs[0, 2])
-        eplhb_corr = derivative_likelihood(output_dict['cue_EPLHb_output'], td_traces = output_dict['cue_error'], d_update=output_dict['cue_d_update_step'], method="correlation")
+        eplhb_corr = derivative_likelihood(output_dict['cue_EPLHb_output'], td_traces = output_dict['cue_error'], method="within_trial")
         ax6.plot(output_dict['trial_axis'], eplhb_corr, color='tab:green', label='EPLHb Correlation')
         ax6.set_title("EPLHb Correlation with TD Error")
         ax6.set_xlabel("Trial")
         ax6.set_ylabel("Correlation Coefficient")
         ax6.legend(loc='upper left', fontsize=10, frameon=False)
+        
+        # Add across_trial correlation as text
+        across_trial_corr = derivative_likelihood(output_dict['cue_EPLHb_output'], 
+                                                td_traces=output_dict['cue_error'], 
+                                                method="across_trial",
+                                                trial_TD_amplitude=output_dict['trial_TD_amplitude'],
+                                                trial_animal_sign_index=output_dict['trial_animal_sign_index'])
+        ax6.text(0.02, 0.98, f'Across-trial corr: {across_trial_corr:.3f}', 
+                transform=ax6.transAxes, verticalalignment='top', 
+                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
 
     # bottom middle: FFT
     # ax5 = fig.add_subplot(gs[2, 1])
@@ -662,7 +690,7 @@ def plot_figure(recorder, td_error_type='external',
     
 
     # the new heatmap, spanning both rows in column 3
-    ax_heat = fig.add_subplot(gs[:, 2])
+    ax_heat = fig.add_subplot(gs[1:3, 2])
     data = output_dict['cue_error']
     im = ax_heat.imshow(
         data,
