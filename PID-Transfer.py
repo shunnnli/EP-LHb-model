@@ -1,9 +1,3 @@
-# to-do
-# implement matrix functionality to test kd, omit, max_b, num_recent, etc
-# implement saving/plot functionality
-
-
-
 #!/usr/bin/env python3
 import os, sys, copy, pickle, itertools, importlib
 repo_path = os.path.abspath("./PID-Accelerated-TD-Learning")
@@ -27,6 +21,7 @@ import torch.optim as optim
 
 from OperantGym import OperantLearning
 from plotfunctions import plot_figure
+from summary_plots import plot_pid_results
 from recorder import SessionRecorder
 import matplotlib.pyplot as plt
 import random
@@ -44,8 +39,8 @@ experiment_params = {
     "omission_probs":   [0, 0.1],
     "repeats":          1,  # Number of repeats for each combination
 
-    "max_batch_sizes":  [1, 5],  # Different batch sizes to test
-    "num_recents":      [1, 5],   # Different num_recent values to test
+    "max_batch_sizes":  [1],  # Different batch sizes to test
+    "num_recents":      [1],   # Different num_recent values to test
 }
 
 # ============================================================================
@@ -53,7 +48,7 @@ experiment_params = {
 # ============================================================================
 operant_session_params = {
     "pairing":          'reward',
-    "num_trials":       10,
+    "num_trials":       800,
     "pre_steps":        10,
     "post_steps":       40,
     "enl_duration":     (2.0, 4.0),
@@ -195,7 +190,7 @@ def setup_environment(env_type):
 # Weight transfer functions
 # ============================================================================
 def save_and_plot_results(env_type, env_params, pid_params,
-                        recorder=None, stuck_counts=None, reward_history=None, 
+                        recorder=None, stuck_counts=None, save_name=None, reward_history=None, 
                         save=True, plot=True):
     """Save results and generate plots"""
     print(f"\n{'='*60}")
@@ -203,65 +198,21 @@ def save_and_plot_results(env_type, env_params, pid_params,
     print(f"{'='*60}")
     
     if save:
-        # Save the recorder and reward data with timestamp
-        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        
-        # Save source environment results
-        if recorder:
-            source_filename = f"{timestamp}-{env_type}_results.pkl"
-            # Store both params and recorder
-            results[(kd, omit, max_b, num_r, r)] = {
-                "session_params": env_params,
-                "pid_params":     env_params,
-                "recorder":       recorder,
-                "seed":           pid_params["seed"],
-                "stuck_counts":   stuck_counts
-            }
-
-            # Save everything
-            with open(f"PID-results/{timestamp}-{env_type}_results.pkl", "wb") as f:
-                pickle.dump(results, f)
-            print(f"Saved environment results to {source_filename}")
-        
-        # Save target environment results
-        if reward_history is not None:
-            # Save as pickle file
-            results[(kd, omit, max_b, num_r, r)] = {
-                "session_params": env_params,
-                "pid_params":     env_params,
-                "recorder":       None,
-                "seed":           pid_params["seed"],
-                "stuck_counts":   stuck_counts
-            }
-            with open(f"PID-results/{timestamp}-{env_type}_results.pkl", "wb") as f:
-                pickle.dump(results, f)
-            print(f"Saved environment results to {timestamp}-{env_type}_results.pkl")
-
-            # Save everything
-            result_file = f"results_Kd_{kd}_omit_{omit}_maxB_{max_b}_numR_{num_r}.pkl"
-            with open(os.path.join(save_dir, result_file), "wb") as f:
-                pickle.dump(results, f)
+        # Store both params and recorder
+        results[(kd, omit, max_b, num_r, repeats)] = {
+            "session_params": env_params,
+            "pid_params":     env_params,
+            "recorder":       recorder,
+            "seed":           pid_params["seed"],
+            "stuck_counts":   stuck_counts
+        }
     
     if plot:
         # Plot source environment results
         if env_type == 'operant' and recorder:
             print("\n--- Plotting results from Operant Task ---")
-            plot_figure(recorder, td_error_type='internal', dt=env_params["dt"], show=True,
-                    pre_steps=env_params["pre_steps"], post_steps=env_params["post_steps"])
-        
-        # Plot target environment results
-        if reward_history is not None:
-            print("\n--- Plotting results from Target Environment ---")
-            import matplotlib.pyplot as plt
-
-            plt.figure(figsize=(12, 6))
-            plt.plot(reward_history, label='Total Reward per Episode')
-            plt.xlabel('Episode')
-            plt.ylabel('Total Reward')
-            plt.title(f'{env_type.title()} Transfer Learning Performance')
-            plt.legend()
-            plt.grid(True)
-            plt.show()
+            plot_figure(recorder, dt=env_params["dt"], pre_steps=env_params["pre_steps"], post_steps=env_params["post_steps"],
+                        save=save, save_path=os.path.join(save_dir, save_name))
 
 # ============================================================================
 # MAIN TRANSFER LEARNING FUNCTION
@@ -315,37 +266,19 @@ def run_transfer_learning():
                 if got_stuck:
                     stuck_counts += 1
             
-            # Plot and save summary figure
+            # Plot and save source environment summary fig
             save_name = f"kd_{kd}_omit_{omit}_maxB_{max_b}_numR_{num_r}_seed_{new_seed}.png"
-            plot_figure(source_recorder, dt=source_env_params["dt"], pre_steps=source_env_params["pre_steps"], post_steps=source_env_params["post_steps"],
-                        save=True, save_path=os.path.join(save_dir, save_name))
-
-            # Store both params and recorder
-            results[(kd, omit, max_b, num_r, r)] = {
-                "session_params": source_env_params,
-                "pid_params":     source_pid_params,
-                "recorder":       source_recorder,
-                "seed":           source_pid_params["seed"],
-                "stuck_counts":   stuck_counts
-            }
+            save_and_plot_results(transfer_params['source_env'], source_env_params, source_pid_params,
+                                    recorder=source_recorder, stuck_counts=stuck_counts, save_name=save_name)
 
         # Save everything
         result_file = f"results_Kd_{kd}_omit_{omit}_maxB_{max_b}_numR_{num_r}.pkl"
         with open(os.path.join(save_dir, result_file), "wb") as f:
             pickle.dump(results, f)
-            
-
-            
-        # Plot results from source environment
-        # save_and_plot_results(transfer_params['source_env'], source_env_params, source_pid_params, recorder=source_recorder, stuck_counts=stuck_counts, save=True, plot=False)
 
     else:
         source_recorder = None
         print("Source environment training skipped (not operant)")
-
-    
-    
-    
 
     # # ============================================================================
     # # PHASE 2: TRANSFER WEIGHTS TO TARGET MODEL
@@ -428,6 +361,8 @@ if __name__ == "__main__":
             operant_pid_params["kd"] = kd
             operant_pid_params["meta_lr_d"] = min(kd, 0.1)
 
-            print(f"\n--- Running sweep: kd={kd}, omission_prob={omit} ---")
+            print(f"\n--- Running sweep: kd={kd}, omission_prob={omit} ---, max_batch_size={max_b}, buffer_trials_recent={num_r}")
             run_transfer_learning()
+
+    plot_pid_results(results_root)
 
