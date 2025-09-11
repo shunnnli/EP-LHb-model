@@ -540,12 +540,24 @@ class ExtendedReplayBuffer(ReplayBuffer):
 
         # If seq_len is provided, we need to create sequences from the batch_idxs
         if seq_len is not None and seq_len > 1:
-            # Create sequences by taking consecutive samples
-            # This assumes batch_idxs represents the starting indices of sequences
+            # Create sequences centered around the reward timestep
+            # batch_idxs represents the final timestep of each trial
             sequence_idxs = []
-            for start_idx in idxs:
-                # Create a sequence of length seq_len starting from start_idx
-                seq = np.arange(start_idx, start_idx + seq_len) % self.buffer_size
+            for trial_end_idx in idxs:
+                # Find the reward timestep within this trial (most recent reward)
+                lookback_window = min(seq_len, trial_end_idx + 1)
+                reward_window = self.rewards[trial_end_idx - lookback_window + 1:trial_end_idx + 1]
+                # Find last reward position (most recent)
+                reward_pos = np.argmax(reward_window[::-1] > 0)
+                reward_idx = trial_end_idx - reward_pos if np.any(reward_window > 0) else trial_end_idx
+                
+                # Create a sequence centered around the reward timestep
+                half_len = seq_len // 2
+                start_idx = reward_idx - half_len
+                end_idx = reward_idx + half_len + (seq_len % 2)  # +1 if seq_len is odd
+                
+                # Create sequence indices, wrapping around buffer if needed
+                seq = np.arange(start_idx, end_idx) % self.buffer_size
                 sequence_idxs.extend(seq)
             
             # Resample with the expanded indices

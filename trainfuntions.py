@@ -374,19 +374,7 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
             print(f"Trial {trial_idx}: batch_idxs={batch_idxs} (k={k}, recent={len(recent)}, sampled={len(sampled)})")
         
         # Do training step using batch_idxs with BPTT
-        # Option 1: Fixed sequence length (recommended)
-        model.train(gradient_steps=gradient_steps, batch_idxs=batch_idxs, seq_len=seq_len)
-        
-        # Option 2: Adaptive sequence length (experimental)
-        # if seq_len == -1:  # Use -1 to indicate adaptive length
-        #     # Use the length of the shortest trial in the batch
-        #     trial_lengths = []
-        #     for idx in batch_idxs:
-        #         # Find trial length by looking backwards from idx
-        #         trial_start = find_trial_start(idx, model.replay_buffer)
-        #         trial_lengths.append(idx - trial_start + 1)
-        #     adaptive_seq_len = min(trial_lengths) if trial_lengths else 10
-        #     model.train(gradient_steps=gradient_steps, batch_idxs=batch_idxs, seq_len=adaptive_seq_len)
+        model.train(gradient_steps=gradient_steps, batch_idxs=batch_idxs)
         
         # Restore original buffer to keep accumulating long-term experience
         # if orig_buffer is not None:
