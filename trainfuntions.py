@@ -241,8 +241,8 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
         enl_count = 0
         z_prev = 0.0
 
-        # # Make changes for continual learning
-        # if trial_idx >= change_start and (trial_idx - change_start) % change_interval == 0:
+        # Make changes for continual learning
+        # if change_interval > 0 and trial_idx >= change_start and (trial_idx - change_start) % change_interval == 0:
         #     if pairing_change:
         #         # Change pairing type randomly
         #         env_params["pairing"] = random.choice(['reward', 'punish'])
