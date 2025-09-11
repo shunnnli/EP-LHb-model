@@ -156,9 +156,7 @@ def setup_buffer(model, env_type, env, warmup_steps=10000):
         return None  # No custom buffer needed, use default
     else:
         raise ValueError(f"Unknown environment type: {env_type}")
-
-
-
+        
 
 def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
                               fix_source_weights=0,
@@ -166,8 +164,9 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
                               change_interval=0,
                               pairing_change=False,
                               difficulty_change="increase",
-                              print_status=True):
-    """Train on operant environment (exactly matching EPLHb-Operant.py)"""
+                              print_status=True,
+                              seq_len=10):
+    """Train on operant environment (matching PID-Operant-Batch.py structure)"""
 
     print(f"Training on operant environment")
     
@@ -190,9 +189,15 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
     # Start training
     obs, _ = env.reset()
     trial_idx = 0
+    enl_count = 0
     eps = eps_start
     recorder._prev_obs = obs
-
+    final_indices = []
+    
+    # Phase printing flags
+    phase1_printed = False
+    phase2_printed = False
+    
     # --- Main training loop with tqdm bar ---
     pbar = tqdm(total=num_trials,
                 desc=f"Trials (seed={pid_params['seed']})",
@@ -204,32 +209,31 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
         q_net = model.policy.q_net
         
         # Manage network freezing for the first n trials
-        if trial_idx < fix_source_weights:
-            if print_status:
-                print(f"\n--- Phase 1: Freezing transferred weights for first {fix_source_weights} trials ---")
-            # Freeze transferred weights (RNN, MLP body, EPLHb)
-            for name, param in q_net.named_parameters():
-                if any(layer in name for layer in ['rnn', 'eplhb', 'eplhb_coeff_raw']):
-                    param.requires_grad = False
-                elif 'post_rnn' in name and not name.endswith('.weight') and not name.endswith('.bias'):
-                    # Freeze MLP body layers (all but the last output layer)
-                    param.requires_grad = False
-        
-            # Create optimizer that only manages unfrozen parameters
-            model.policy.optimizer = optim.Adam(
-                filter(lambda p: p.requires_grad, q_net.parameters()), 
-                lr=pid_params['learning_rate']
-            )
-        
-        if trial_idx >= fix_source_weights:
-            if print_status:
-                print(f"\n--- Phase 2: Unfreezing all weights to fine-tune entire network ---")
-            # Unfreeze all parameters
-            for param in q_net.parameters():
-                param.requires_grad = True
+        if fix_source_weights > 0:  # Only do weight freezing if actually needed
+            if trial_idx < fix_source_weights:
+                if not phase1_printed:
+                    print(f"\n--- Phase 1: Freezing transferred weights for first {fix_source_weights} trials ---")
+                    phase1_printed = True
+                    # Freeze transferred weights (RNN, MLP body, EPLHb)
+                    for name, param in q_net.named_parameters():
+                        if any(layer in name for layer in ['rnn', 'eplhb', 'eplhb_coeff_raw']):
+                            param.requires_grad = False
+                        elif 'post_rnn' in name and not name.endswith('.weight') and not name.endswith('.bias'):
+                            # Freeze MLP body layers (all but the last output layer)
+                            param.requires_grad = False
+                    
+                    # Create optimizer that only manages unfrozen parameters with correct learning rates
+                    rebuild_optimizer_with_correct_lr_groups(model, pid_params)
             
-            # Rebuild optimizer to manage all parameters
-            model.policy._build(model.lr_schedule)
+            elif trial_idx == fix_source_weights:  # Only transition once
+                if not phase2_printed:
+                    print(f"\n--- Phase 2: Unfreezing all weights to fine-tune entire network ---")
+                    phase2_printed = True
+                    # Unfreeze all parameters
+                    for param in q_net.parameters():
+                        param.requires_grad = True
+                    # Rebuild optimizer with correct learning rate groups
+                    rebuild_optimizer_with_correct_lr_groups(model, pid_params)
 
         if print_status:
             print(f"Trial {trial_idx+1}/{num_trials}, ε={eps:.3f}") 
@@ -238,8 +242,9 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
         model.policy.q_net.reset_hidden(batch_size=pid_params["batch_size"])
         done = False
         trial_timesteps = 0
-        enl_count = 0
+        trial_inds = [] # Reset trial indices for this trial
         z_prev = 0.0
+        env.trial_count = trial_idx
 
         # Make changes for continual learning
         # if change_interval > 0 and trial_idx >= change_start and (trial_idx - change_start) % change_interval == 0:
@@ -260,34 +265,34 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
         #                 env_params["omission_prob"] = 0.8
         #             elif trial_idx % 10 == 0 and env_params["omission_prob"] == 0.8:
         #                 env_params["omission_prob"] = 0.2
-    
-        # Run one trial
+
+        # run one trial
         while not done:
-            # Set exploration rate
+            # set exploration rate
             model.exploration_rate = eps
             model.logger.record("rollout/exploration_rate", eps)
-            
-            # Act
+
+            # act
             action, _ = model.predict(obs, deterministic=False)
             next_obs, reward, _, _, info = env.step(action)
             done = info["done"]
             outcome = info["outcome"]
             
             # Punish if stuck in ENL for > threshold steps
-            enl_count = enl_count + 1 if outcome and "enl" in outcome else 0
-            reward -= max(enl_count - enl_threshold, 0) * enl_punish_scale
+            # enl_count = enl_count + 1 if outcome and "enl" in outcome else 0
+            # reward -= max(enl_count - enl_threshold, 0) * enl_punish_scale
             
             # Update gains and sync networks
             model._on_step()
             trial_timesteps += 1
-            
-            # Calculate d and z updates for replay buffer
+
+            # calcualte d and z updates for the replay buffer
             with torch.no_grad():
-                # Make observation tensor
-                obs_t = torch.tensor(obs, device=model.device, dtype=torch.float32).unsqueeze(0)
+                # make observation tensor
+                obs_t  = torch.tensor(obs,  device=model.device, dtype=torch.float32).unsqueeze(0)
                 next_t = torch.tensor(next_obs, device=model.device, dtype=torch.float32).unsqueeze(0)
-                
-                # Get the D update
+
+                # get d update
                 if model.tabular_d:
                     d_update = model.gain_adapter.get_d_update(obs_t, next_t)
                 else:
@@ -321,38 +326,69 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
                 z=np.array([z_update], dtype=np.float32),
             )
             
+            # Record current trial idx within buffer (like in PID-Operant.py)
+            idx = (model.replay_buffer.pos - 1) % model.replay_buffer.buffer_size
+            trial_inds.append(idx)
+            
             # Record every timestep
             recorder.record_env_step(trial_idx, action, reward, next_obs, info, model=model,
                                   record_sign_index=True, record_eplhb_weight=True)
             
             # Update obs, z_prev
             obs, z_prev = next_obs, z_update
-        
+
+        # update exploration rate upon trial completion
         if outcome == "trial_end":
             trial_idx += 1
+            pbar.update(1)
+            enl_count = 0
             # Compute step-based epsilon
             frac = min(1.0, trial_idx / max(1, decay_trials))
             eps = eps_start + frac * (eps_end - eps_start)
         else:
             # punish if stuck in ENL for > 200 steps
-            enl_count = enl_count + 1
-            reward -= max(enl_count - env_params["enl_threshold"], 0) * env_params["enl_punish_scale"]
+            enl_count += 1
+            reward -= max(enl_count - enl_threshold, 0) * enl_punish_scale
             # reset the seed and retrain if ENL > 1000 steps
             if enl_count > 500:
                 retrain = True
                 print(f"ENL break after {enl_count} steps, retraining with different seed...")
-                return recorder, retrain
+                return recorder, retrain, True
         
-        # Do training step
-        model.train(batch_size=pid_params["batch_size"], seq_len=trial_timesteps, gradient_steps=gradient_steps)
+        # Bootstrapping: collect final step indices (like in PID-Operant-Batch.py)
+        final_indices.append(trial_inds[-1])
+        
+        # Make dynamic to adjust for batch size vs. available trials to pull from
+        # Use max_batch_size and num_recent from env_params (like PID-Operant-Batch.py)
+        max_batch_size = pid_params.get("max_batch_size", 10)
+        num_recent = pid_params.get("num_recent", 5)
+        
+        k = min(len(final_indices), max_batch_size)
+        n_recent = min(len(final_indices), num_recent)
+        recent = final_indices[-n_recent:]
+        remaining = final_indices[:-n_recent]
+        needed = k - len(recent)
+        if needed > 0 and remaining:
+            sampled = random.sample(remaining, min(needed, len(remaining)))
+        else:
+            sampled = []
+        batch_idxs = recent + sampled
+        
+        if print_status and trial_idx % 10 == 0:  # Print every 10 trials to avoid spam
+            print(f"Trial {trial_idx}: batch_idxs={batch_idxs} (k={k}, recent={len(recent)}, sampled={len(sampled)})")
+        
+        # Do training step using batch_idxs with BPTT
+        model.train(gradient_steps=gradient_steps, batch_idxs=batch_idxs)
         
         # Restore original buffer to keep accumulating long-term experience
-        if orig_buffer is not None:
-            model.replay_buffer = orig_buffer
+        # if orig_buffer is not None:
+        #     model.replay_buffer = orig_buffer
     
     print(f"Operant environment training complete! Trained for {num_trials} trials.")
     pbar.close()
-    return recorder, retrain
+    return recorder, retrain, False
+
+
 
 def train_PID_operant_environment(model, env, env_params, pid_params,
                                   fix_source_weights=0,
