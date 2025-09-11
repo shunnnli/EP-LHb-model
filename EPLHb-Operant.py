@@ -191,7 +191,7 @@ def run_operant_training():
         
         # Train on operant environment
         recorder, retrain, got_stuck = train_operant_environment(
-            model, env, operant_session_params, operant_pid_params, orig_buffer,
+            model, env, operant_session_params, operant_pid_params, orig_buffer=orig_buffer,
             print_status=False
         )
         

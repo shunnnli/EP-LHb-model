@@ -189,7 +189,7 @@ def setup_buffer(model, env_type, env, warmup_steps=10000):
 
 
 
-def train_operant_environment(model, env, env_params, pid_params, orig_buffer,
+def train_operant_environment(model, env, env_params, pid_params, orig_buffer=None,
                               fix_source_weights=0,
                               change_start=0,
                               change_interval=0,
