@@ -26,6 +26,8 @@ def extract_batch_data(batches):
     all_batch_cue_errors = {}
     all_batch_ant_licks = {}
     all_batch_stuck_counts = {}
+    # Dynamic aggregation for any additional outputs
+    all_batch_extras = {}
 
     # Sort batches by (kd, omit, max_b, num_r) for consistent plotting
     sorted_items = sorted(
@@ -36,8 +38,6 @@ def extract_batch_data(batches):
                         kv[0][0]) # kd
     )
 
-    t_axis = None
-
     for idx, ((kd, omit, max_b, num_r), batch_data) in enumerate(sorted_items):
         all_rewards = []
         td_amplitudes = []  # List of np.arrays (one per session)
@@ -46,6 +46,7 @@ def extract_batch_data(batches):
         batch_name = (kd, omit, max_b, num_r)  # Use tuple as batch name
         ant_licks = []
         all_stuck_counts = []
+        batch_extras = {}
         print(f"Processing batch: {batch_name}")
 
         for session, session_data in batch_data.items():
@@ -57,10 +58,38 @@ def extract_batch_data(batches):
             stuck_counts = session_data["stuck_counts"]
             output_dict = load_recorder_data(recorder, dt=dt, pre_steps=pre_steps, post_steps=post_steps)
             reward_history = output_dict['reward_history']
+
+            p_history = output_dict['p_history']
+            i_history = output_dict['i_history']
+            d_history = output_dict['d_history']
+            kp_history = output_dict['kp_history']
+            ki_history = output_dict['ki_history']
+            kd_history = output_dict['kd_history']
+            p_kp_history = output_dict['p_kp_history']
+            i_ki_history = output_dict['i_ki_history']
+            d_kd_history = output_dict['d_kd_history']
+
+            update_step = output_dict['update_step']
+            td_errors = output_dict['td_errors']
+            td_pid_errors = output_dict['td_pid_errors']
+            DAs = output_dict['DAs']
+            cue_licks = output_dict['cue_licks']
             cue_error = output_dict['cue_error']
+            cue_omissions = output_dict['cue_omissions']
+            cue_levels = output_dict['cue_levels']
+            cue_d_update_step = output_dict['cue_d_update_step']
             trial_anticipatory_licks = output_dict['trial_anticipatory_licks']
             trial_TD_amplitude = output_dict['trial_TD_amplitude']
+            trial_pid_TD_amplitude = output_dict['trial_pid_TD_amplitude']
+            
+            trial_animal_sign_index = output_dict['trial_animal_sign_index']
+            eplhb_out = output_dict['eplhb_out']
+            eplhb_coeff = output_dict['eplhb_coeff']
+            cue_EPLHb_output = output_dict['cue_EPLHb_output']
+            cue_EPLHb_coeff = output_dict['cue_EPLHb_coeff']
+
             t_axis = output_dict['t_axis']
+            trial_axis = output_dict['trial_axis']
 
             all_rewards.extend(reward_history)
             td_amplitudes.append(np.array(trial_TD_amplitude))
@@ -72,14 +101,30 @@ def extract_batch_data(batches):
             cue_errors.append(cue_error)
             all_stuck_counts.append(stuck_counts)
 
+            # Collect any additional keys from output_dict dynamically
+            for k, v in output_dict.items():
+                if k in {'reward_history', 'trial_TD_amplitude', 'trial_pid_TD_amplitude', 'trial_anticipatory_licks', 'cue_error', 't_axis', 'trial_axis'}:
+                    continue
+                if k not in batch_extras:
+                    batch_extras[k] = []
+                try:
+                    batch_extras[k].append(np.array(v))
+                except Exception:
+                    batch_extras[k].append(v)
+
         all_batch_rewards[batch_name] = all_rewards
         all_batch_td[batch_name] = td_amplitudes
         success_trials[batch_name] = success_per_session
         all_batch_cue_errors[batch_name] = cue_errors
         all_batch_ant_licks[batch_name] = ant_licks
         all_batch_stuck_counts[batch_name] = all_stuck_counts
+        # Move batch extras into global container
+        for k, per_session in batch_extras.items():
+            if k not in all_batch_extras:
+                all_batch_extras[k] = {}
+            all_batch_extras[k][batch_name] = per_session
 
-    return all_batch_rewards, all_batch_td, success_trials, all_batch_cue_errors, t_axis, all_batch_ant_licks, all_batch_stuck_counts
+    return all_batch_rewards, all_batch_td, success_trials, all_batch_cue_errors, t_axis, all_batch_ant_licks, all_batch_stuck_counts, all_batch_extras
 
 
 def get_latest_run_folder(root_dir: str) -> str:
@@ -108,8 +153,12 @@ def get_latest_run_folder(root_dir: str) -> str:
     _, latest_folder = max(date_dirs, key=lambda x: x[0])
     return latest_folder
 
-
-def plot_pid_results(root_dir="PID-results"):
+def load_batches(root_dir, 
+                filter_kd=None, 
+                filter_omit=None, 
+                filter_max_b=None, 
+                filter_num_r=None, 
+                filter_repeat=None):
     latest = get_latest_run_folder(root_dir)
 
     # Step 1: Combine all .pkl files inside the latest folder
@@ -126,10 +175,54 @@ def plot_pid_results(root_dir="PID-results"):
     batches = {}
     for (kd, omit, max_b, num_r, repeat), data in raw_results.items():
         batches.setdefault((kd, omit, max_b, num_r), {})[repeat] = data
+    
+    # Apply filters based on input parameters
+    if any([filter_kd is not None, filter_omit is not None, filter_max_b is not None, 
+            filter_num_r is not None, filter_repeat is not None]):
+        
+        filtered_batches = {}
+        for (kd, omit, max_b, num_r), batch_data in batches.items():
+            # Check if this batch matches all specified filters
+            if filter_kd is not None and kd not in filter_kd:
+                continue
+            if filter_omit is not None and omit not in filter_omit:
+                continue
+            if filter_max_b is not None and max_b not in filter_max_b:
+                continue
+            if filter_num_r is not None and num_r not in filter_num_r:
+                continue
+            
+            # For repeat filtering, we need to check individual sessions
+            if filter_repeat is not None:
+                filtered_sessions = {repeat: data for repeat, data in batch_data.items() 
+                                  if repeat in filter_repeat}
+                if filtered_sessions:  # Only keep batch if it has matching repeats
+                    filtered_batches[(kd, omit, max_b, num_r)] = filtered_sessions
+            else:
+                filtered_batches[(kd, omit, max_b, num_r)] = batch_data
+        
+        batches = filtered_batches
+        print(f"Applied filters: kd={filter_kd}, omit={filter_omit}, max_b={filter_max_b}, "
+              f"num_r={filter_num_r}, repeat={filter_repeat}")
+        print(f"Filtered from {len(raw_results)} to {len(batches)} batches")
 
     # extract data
     print("Extracting data from batches...")
-    all_rewards, all_td, success_trials, cue_errors, t_axis, ant_licks, stuck_counts = extract_batch_data(batches)
+    all_rewards, all_td, success_trials, cue_errors, t_axis, ant_licks, stuck_counts, all_batch_extras = extract_batch_data(batches)
+
+    return all_rewards, all_td, success_trials, cue_errors, t_axis, ant_licks, stuck_counts, all_batch_extras
+
+
+def plot_pid_results(root_dir="PID-results", 
+                    filter_kd=None, 
+                    filter_omit=None, 
+                    filter_max_b=None, 
+                    filter_num_r=None, 
+                    filter_repeat=None,
+                    title="PID Results"):
+    latest = get_latest_run_folder(root_dir)
+    all_rewards, all_td, success_trials, cue_errors, t_axis, ant_licks, stuck_counts, all_batch_extras = load_batches(
+        root_dir, filter_kd, filter_omit, filter_max_b, filter_num_r, filter_repeat)
     
     # ------- plot results -------
     fig = plt.figure(figsize=(26, 8))  # make figure a bit wider
@@ -207,8 +300,14 @@ def plot_pid_results(root_dir="PID-results"):
 
     # Anticipatory Licks
     for (kd, omit, max_b, num_r), ant_licks_sessions in sorted_licks:
-        standard_length = 600
-        fixed_sessions = [np.pad(s, (0, standard_length - len(s)), mode='constant') if len(s) < standard_length else s[:standard_length] for s in ant_licks_sessions]
+        # Determine standard_length from the first session's length
+        if len(ant_licks_sessions) == 0:
+            continue  # skip if no sessions
+        standard_length = len(ant_licks_sessions[0])
+        fixed_sessions = [
+            np.pad(s, (0, standard_length - len(s)), mode='constant') if len(s) < standard_length else s[:standard_length]
+            for s in ant_licks_sessions
+        ]
         ant_licks_sessions_array = np.stack(fixed_sessions)
         avg = np.mean(ant_licks_sessions_array, axis=0)
         sem = np.std(ant_licks_sessions_array, axis=0) / np.sqrt(ant_licks_sessions_array.shape[0])
@@ -255,7 +354,7 @@ def plot_pid_results(root_dir="PID-results"):
 
     # Save the figure
     plt.tight_layout()
-    fig_path = os.path.join(latest, "PID-results.png")
+    fig_path = os.path.join(latest, f"{title}.png")
     fig.savefig(fig_path, dpi=300)
     print(f"Figure saved to: {fig_path}")
     plt.show()
@@ -264,4 +363,4 @@ def plot_pid_results(root_dir="PID-results"):
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
     results_root = os.path.join(script_dir, "PID-results-ext_buffer")
-    plot_pid_results(results_root)
+    plot_pid_results(results_root)  # No filters applied

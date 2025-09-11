@@ -27,7 +27,7 @@ from types import SimpleNamespace
 # session_params defined here
 base_session_params = {
     "pairing":          'reward',
-    "num_trials":       100,
+    "num_trials":       10,
     "pre_steps":        10,
     "post_steps":       40,
     "enl_duration":     (2.0, 4.0),
@@ -302,7 +302,6 @@ def train_once(session_params, pid_params):
             sampled = []
         batch_idxs = recent + sampled
 
-        print("batch_idxs:", batch_idxs)
     
         # train
         model.train(gradient_steps=session_params["gradient_steps"], batch_idxs=batch_idxs)
@@ -317,13 +316,13 @@ def train_once(session_params, pid_params):
 # ----------------------------------------------------------------
 if __name__ == "__main__":
     # Define sweep grid
-    kd_values        = [0]  # PID derivative gain values
-    meta_lr_d        = [0]  # Adapt ON for kd
-    omission_probs   = [0]
+    kd_values        = [0, 0.1]  # PID derivative gain values
+    meta_lr_d        = [0, 0.1]  # Adapt ON for kd
+    omission_probs   = [0, 0.1]
     repeats          = 1  # Number of repeats for each combination
 
-    max_batch_sizes  = [1]  # Different batch sizes to test
-    num_recents      = [1]   # Different num_recent values to test
+    max_batch_sizes  = [1, 5]  # Different batch sizes to test
+    num_recents      = [1, 5]   # Different num_recent values to test
 
     # Save results settings
     batch_name = 'kd_omission_sweep'
@@ -378,7 +377,7 @@ if __name__ == "__main__":
                 # Plot and save summary figure
                 save_name = f"kd_{kd}_omit_{omit}_maxB_{max_b}_numR_{num_r}_seed_{pp['seed']}.png"
                 plot_figure(rec, dt=sp["dt"], pre_steps=sp["pre_steps"], post_steps=sp["post_steps"],
-                            save=False, save_path=os.path.join(save_dir, save_name), show=True)
+                            save=True, save_path=os.path.join(save_dir, save_name))
 
                 # Store both params and recorder
                 results[(kd, omit, max_b, num_r, r)] = {
@@ -390,12 +389,12 @@ if __name__ == "__main__":
                 }
 
             # Save everything
-            # result_file = f"results_Kd_{kd}_omit_{omit}_maxB_{max_b}_numR_{num_r}.pkl"
-            # with open(os.path.join(save_dir, result_file), "wb") as f:
-            #     pickle.dump(results, f)
+            result_file = f"results_Kd_{kd}_omit_{omit}_maxB_{max_b}_numR_{num_r}.pkl"
+            with open(os.path.join(save_dir, result_file), "wb") as f:
+                pickle.dump(results, f)
 
     
 
     print(f"\nAll sweeps completed. Results saved to {save_dir}")
-    # plot_pid_results(results_root)
+    plot_pid_results(results_root)
     print("Summary Plot Saved")

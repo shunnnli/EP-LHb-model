@@ -266,6 +266,7 @@ def run_transfer_learning():
     print(f"PHASE 1: Training on {transfer_params['source_env']} environment")
     print(f"{'='*60}")
     
+    source_model, _ = setup_model(source_env, source_pid_params, device="cpu", model_type="EPLHb")
     source_orig_buffer = setup_buffer(source_model, transfer_params['source_env'], source_env)
     if transfer_params['source_env'] == 'operant':
         retrain = True

@@ -18,10 +18,6 @@ from tqdm import tqdm
 import random
 from recorder import SessionRecorder
 
-# TODO: Add PID model setup function
-#def setup_PID_model(env, pid_params, device="cpu"):
-
-
 
 def setup_model(env, pid_params, device="cpu", model_type="EPLHb"):
     """
