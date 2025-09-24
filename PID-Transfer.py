@@ -35,12 +35,12 @@ seed = 12242
 # ============================================================================
 experiment_params = {
     # Define sweep grid
-    "kd_values":        [0, 0.1],  # PID derivative gain values
-    "omission_probs":   [0, 0.1],
-    "repeats":          1,  # Number of repeats for each combination
+    "kd_values":        [0, 0.1, 0.25, 0.5],  # PID derivative gain values
+    "omission_probs":   [0, 0.1, 0.25, 0.5],
+    "repeats":          10,  # Number of repeats for each combination
 
-    "max_batch_sizes":  [1],  # Different batch sizes to test
-    "num_recents":      [1],   # Different num_recent values to test
+    "max_batch_sizes":  [1, 5],  # Different batch sizes to test
+    "num_recents":      [1, 1],   # Different num_recent values to test
 }
 
 # ============================================================================
@@ -49,7 +49,7 @@ experiment_params = {
 
 operant_session_params = {
     "pairing":          'reward',
-    "num_trials":       20,
+    "num_trials":       800,
     "pre_steps":        10,           # 1 s @ 100 ms
     "post_steps":       40,           # 5 s @ 100 ms
     "enl_duration":     (2.0, 4.0),   # seconds
@@ -182,6 +182,9 @@ def setup_environment(env_type):
             enl_penalty=operant_session_params["enl_penalty"],
             reward_decay=True,
             reward_decay_time=1.0,
+            continual_learning=operant_session_params["continual_learning"],
+            change_start=operant_session_params["change_start"],
+            change_interval=operant_session_params["change_interval"],
             print_status=False,
         )
         return env, operant_session_params, operant_pid_params
