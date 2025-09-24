@@ -502,7 +502,7 @@ class OperantLearning(gym.Env):
         if info.get("done", False) and info.get("outcome") == "trial_end":
             self.trial_count += 1
             level_up = False
-            if self.continual_learning and self.trial_count % 50 == 0 and self.trial_count >= 200:
+            if self.continual_learning and self.trial_count % self.change_interval == 0 and self.trial_count >= self.change_start:
                 self.level += 1
                 level_up = True
             info["level_up"] = level_up
