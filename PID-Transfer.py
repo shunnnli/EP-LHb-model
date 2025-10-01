@@ -35,12 +35,12 @@ seed = 12242
 # ============================================================================
 experiment_params = {
     # Define sweep grid
-    "kd_values":        [0, 0.1, 0.25, 0.5],  # PID derivative gain values
-    "omission_probs":   [0, 0.1, 0.25, 0.5],
-    "repeats":          10,  # Number of repeats for each combination
+    "kd_values":        [0, 0.1, 0.3],  # PID derivative gain values
+    "omission_probs":   [0, 0.1, 0.3],
+    "repeats":          15,  # Number of repeats for each combination
 
     "max_batch_sizes":  [1, 5],  # Different batch sizes to test
-    "num_recents":      [1, 1],   # Different num_recent values to test
+    "num_recents":      [1, 5],   # Different num_recent values to test
 }
 
 # ============================================================================
@@ -197,17 +197,20 @@ def setup_environment(env_type):
 # ============================================================================
 # Weight transfer functions
 # ============================================================================
-def save_and_plot_results(env_type, env_params, pid_params,
+def save_and_plot_results(env_type, env_params, pid_params, results=None,
                         recorder=None, stuck_counts=None, save_name=None, reward_history=None, 
-                        save=True, plot=True):
+                        save=True, plot=True, r=None, kd=None, omit=None, max_b=None, num_r=None):
     """Save results and generate plots"""
     print(f"\n{'='*60}")
     print("Saving results and plotting")
     print(f"{'='*60}")
+
+    if results is None:
+        results = {}
     
     if save:
         # Store both params and recorder
-        results[(kd, omit, max_b, num_r, repeats)] = {
+        results[(kd, omit, max_b, num_r, r)] = {
             "session_params": env_params,
             "pid_params":     env_params,
             "recorder":       recorder,
@@ -221,6 +224,11 @@ def save_and_plot_results(env_type, env_params, pid_params,
             print("\n--- Plotting results from Operant Task ---")
             plot_figure(recorder, dt=env_params["dt"], pre_steps=env_params["pre_steps"], post_steps=env_params["post_steps"],
                         save=save, save_path=os.path.join(save_dir, save_name),show=False)
+    
+    else:
+        results = None
+    
+    return results
 
 # ============================================================================
 # MAIN TRANSFER LEARNING FUNCTION
@@ -241,6 +249,9 @@ def run_transfer_learning():
     # Setup target environment and model
     print(f"\nSetting up target environment: {transfer_params['target_env']}")
     target_env, target_env_params, target_pid_params = setup_environment(transfer_params['target_env'])
+
+    # define results
+    global results
     
     print("\nTransfer learning setup complete!")
     
@@ -277,8 +288,17 @@ def run_transfer_learning():
             
             # Plot and save source environment summary fig
             save_name = f"kd_{kd}_omit_{omit}_maxB_{max_b}_numR_{num_r}_seed_{new_seed}.png"
-            save_and_plot_results(transfer_params['source_env'], source_env_params, source_pid_params,
-                                    recorder=source_recorder, stuck_counts=stuck_counts, save_name=save_name)
+            results = save_and_plot_results(
+                transfer_params['source_env'],
+                source_env_params,
+                source_pid_params,
+                results=results,
+                recorder=source_recorder,
+                stuck_counts=stuck_counts,
+                save_name=save_name,
+                r=r,
+                kd=kd, omit=omit, max_b=max_b, num_r=num_r
+            )
 
         # Save everything
         result_file = f"results_Kd_{kd}_omit_{omit}_maxB_{max_b}_numR_{num_r}.pkl"

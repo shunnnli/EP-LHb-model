@@ -220,8 +220,6 @@ def plot_pid_results(root_dir="PID-results",
                     filter_num_r=None, 
                     filter_repeat=None,
                     title="PID Results"):
-
-    print(("plotting pid results"))
     latest = get_latest_run_folder(root_dir)
     all_rewards, all_td, success_trials, cue_errors, t_axis, ant_licks, stuck_counts, all_batch_extras = load_batches(
         root_dir, filter_kd, filter_omit, filter_max_b, filter_num_r, filter_repeat)
@@ -295,16 +293,13 @@ def plot_pid_results(root_dir="PID-results",
 
 
     # Success trials
-    print("Plotting success trials...xxxxxx")
+    print("Plotting success trials...")
     plotScatterBar(success_trials.values(),labels=labels, colors=colors, style='bar', ax=ax3)
     ax3.set_ylabel("Success trials")
     ax3.set_title("Success trials (reward > 2) after change start")
 
-    print("Number of sorted_licks entries:", len(sorted_licks))
-
     # Anticipatory Licks
     for (kd, omit, max_b, num_r), ant_licks_sessions in sorted_licks:
-        print("plotting anticipatory licks")
         # Determine standard_length from the first session's length
         if len(ant_licks_sessions) == 0:
             continue  # skip if no sessions
@@ -316,8 +311,6 @@ def plot_pid_results(root_dir="PID-results",
         ant_licks_sessions_array = np.stack(fixed_sessions)
         avg = np.mean(ant_licks_sessions_array, axis=0)
         sem = np.std(ant_licks_sessions_array, axis=0) / np.sqrt(ant_licks_sessions_array.shape[0])
-
-        print("avg", avg, "sem", sem)
 
         x = np.arange(1, avg.shape[0] + 1)
         ax4.plot(x, avg, label=f"kd={kd}, omit={omit}, max_b={max_b}, num_r={num_r}")
