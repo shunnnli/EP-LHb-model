@@ -27,7 +27,7 @@ from types import SimpleNamespace
 # session_params defined here
 base_session_params = {
     "pairing":          'reward',
-    "num_trials":       10,
+    "num_trials":       200,
     "pre_steps":        10,
     "post_steps":       40,
     "enl_duration":     (2.0, 4.0),
@@ -46,7 +46,7 @@ base_session_params = {
     "num_recent":       1,   # number of consecutive recent trials to fill replay buffer. ex. 5 num_recent, means 5 random old trials in size 10 replay buffer
     "buffer_size":      1,
     "dt":               0.1,
-    "continual_learning": True,
+    "continual_learning": False,
     "change_start":     200,
     "change_interval":  50,
 }
@@ -316,13 +316,13 @@ def train_once(session_params, pid_params):
 # ----------------------------------------------------------------
 if __name__ == "__main__":
     # Define sweep grid
-    kd_values        = [0, 0.1]  # PID derivative gain values
-    meta_lr_d        = [0, 0.1]  # Adapt ON for kd
-    omission_probs   = [0, 0.1]
+    kd_values        = [0]  # PID derivative gain values
+    meta_lr_d        = [0]  # Adapt ON for kd
+    omission_probs   = [0]
     repeats          = 1  # Number of repeats for each combination
 
-    max_batch_sizes  = [1, 5]  # Different batch sizes to test
-    num_recents      = [1, 5]   # Different num_recent values to test
+    max_batch_sizes  = [1]  # Different batch sizes to test
+    num_recents      = [1]   # Different num_recent values to test
 
     # Save results settings
     batch_name = 'kd_omission_sweep'
