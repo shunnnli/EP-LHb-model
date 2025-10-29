@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-EPLHb_transfer_sweep.py
-Merged sweep + transfer logic (PID-style) applied to EPLHb transfer workflow.
-"""
 import os, sys, importlib, pickle, itertools, random
 repo_path = os.path.abspath("./PID-Accelerated-TD-Learning")
 if repo_path not in sys.path:
