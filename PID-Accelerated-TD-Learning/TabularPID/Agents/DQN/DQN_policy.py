@@ -462,6 +462,7 @@ class DQNPolicy(BasePolicy):
         with_RNN_layer: bool = True,
         with_EPLHb_layer: bool = False,
         rnn_type: str = "RNN",  # Options: "RNN", "GRU", "LSTM"
+        fixed_sign: bool = True,
     ) -> None:
         super().__init__(
             observation_space,
@@ -484,7 +485,8 @@ class DQNPolicy(BasePolicy):
         self.with_RNN_layer = with_RNN_layer
         self.with_EPLHb_layer = with_EPLHb_layer
         self.rnn_type = rnn_type
-        
+        self.fixed_sign = fixed_sign
+
         self.net_args = {
             "observation_space": self.observation_space,
             "action_space": self.action_space,
@@ -492,6 +494,7 @@ class DQNPolicy(BasePolicy):
             "activation_fn": self.activation_fn,
             "normalize_images": normalize_images,
             "rnn_type": self.rnn_type,
+            "fixed_sign": fixed_sign,
         }
 
         # Extract initial_eplhb_coeff from features_extractor_kwargs if provided

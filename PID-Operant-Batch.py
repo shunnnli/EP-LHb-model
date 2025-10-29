@@ -86,7 +86,9 @@ base_pid_params = {
     "seed":                 26,
     "rnn_type": "GRU",  # Options: "RNN", "GRU", "LSTM". Change as needed.
     "l2_lambda": 1e-6,  # L2 regularization strength for EPLHb weights
+    "fixed_sign": False,
 }
+
 
 
 # --------------------------------------------------------
@@ -139,6 +141,7 @@ def train_once(session_params, pid_params):
         optimizer_class=optim.Adam,
         with_RNN_layer=True,
         rnn_type=pid_params["rnn_type"], # RNN, GRU, LSTM
+        fixed_sign=pid_params["fixed_sign"],
     )
 
     model = PID_DQN(
