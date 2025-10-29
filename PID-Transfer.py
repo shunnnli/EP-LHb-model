@@ -35,12 +35,12 @@ seed = 12242
 # ============================================================================
 experiment_params = {
     # Define sweep grid
-    "kd_values":        [0, 0.1, 0.3],  # PID derivative gain values
-    "omission_probs":   [0, 0.1, 0.3],
-    "repeats":          15,  # Number of repeats for each combination
+    "kd_values":        [0],  # PID derivative gain values
+    "omission_probs":   [0],
+    "repeats":          1,  # Number of repeats for each combination
 
-    "max_batch_sizes":  [1, 5],  # Different batch sizes to test
-    "num_recents":      [1, 5],   # Different num_recent values to test
+    "max_batch_sizes":  [1],  # Different batch sizes to test
+    "num_recents":      [1],   # Different num_recent values to test
 }
 
 # ============================================================================
@@ -49,7 +49,7 @@ experiment_params = {
 
 operant_session_params = {
     "pairing":          'reward',
-    "num_trials":       800,
+    "num_trials":       20,
     "pre_steps":        10,           # 1 s @ 100 ms
     "post_steps":       40,           # 5 s @ 100 ms
     "enl_duration":     (2.0, 4.0),   # seconds
@@ -107,6 +107,8 @@ operant_pid_params = {
     # Batch sampling parameters (like PID-Operant-Batch.py)
     "max_batch_size":   5,            # max replay buffer space
     "num_recent":       1,            # number of consecutive recent trials to fill replay buffer
+
+    "fixed_sign":       True
 }
 
 # ============================================================================

@@ -86,7 +86,7 @@ base_pid_params = {
     "seed":                 26,
     "rnn_type": "GRU",  # Options: "RNN", "GRU", "LSTM". Change as needed.
     "l2_lambda": 1e-6,  # L2 regularization strength for EPLHb weights
-    "fixed_sign": False,
+    "fixed_sign": True,
 }
 
 
@@ -136,6 +136,7 @@ def train_once(session_params, pid_params):
         meta_lr_d=pid_params["meta_lr_d"],
     )
 
+
     policy_kwargs = dict(
         net_arch=[pid_params["inner_size"], pid_params["inner_size"]],
         optimizer_class=optim.Adam,
@@ -174,11 +175,18 @@ def train_once(session_params, pid_params):
     )
 
     # store initial weights
-    initial_weights = {
+    initial_weights_q_net = {
         name: p.detach().cpu().clone()
         for name, p in model.q_net.named_parameters()
         if 'weight' in name
     }
+
+    initial_weights_q_net_target = {
+        name: p.detach().cpu().clone()
+        for name, p in model.q_net.named_parameters()
+        if 'weight' in name
+    }
+    
     gain_adapter.set_model(model)
 
     # Set up logging
@@ -323,13 +331,19 @@ def train_once(session_params, pid_params):
 
     pbar.close()
 
-    final_weights = {
+    final_weights_q_net = {
+        name: p.detach().cpu().clone()
+        for name, p in model.q_net.named_parameters()
+        if 'weight' in name
+    }
+    final_weights_q_net_target = {
         name: p.detach().cpu().clone()
         for name, p in model.q_net.named_parameters()
         if 'weight' in name
     }
 
-    plot_weight_changes(initial_weights, final_weights, pid_params["seed"], save=True)
+    plot_weight_changes(initial_weights_q_net, final_weights_q_net, pid_params["seed"], "q_net", save=True)
+    plot_weight_changes(initial_weights_q_net_target, final_weights_q_net_target, pid_params["seed"], "q_net_target", save=True)
 
     return recorder, retrain, False
     

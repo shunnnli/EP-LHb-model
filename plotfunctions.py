@@ -6,7 +6,7 @@ from matplotlib import cm
 import matplotlib.colors as mcolors
 
 
-def plot_weight_changes(initial_weights, final_weights, seed, save=False):
+def plot_weight_changes(initial_weights, final_weights, seed, name, save=False):
     layer_names = list(initial_weights.keys())
     num_layers = len(layer_names)
 
@@ -37,7 +37,7 @@ def plot_weight_changes(initial_weights, final_weights, seed, save=False):
 
     plt.tight_layout()
     if save:
-        plt.savefig(f"weight_changes_{seed}.png")
+        plt.savefig(f"{name}_weight_changes_{seed}.png")
     else:
         plt.show()
         plt.close()
