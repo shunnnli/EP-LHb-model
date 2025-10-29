@@ -313,50 +313,50 @@ def run_transfer_learning():
         source_recorder = None
         print("Source environment training skipped (not operant)")
 
-    # ============================================================================
-    # PHASE 2: TRANSFER WEIGHTS TO TARGET MODEL
-    # ============================================================================
-    print(f"\n{'='*60}")
-    print(f"PHASE 2: Transferring weights to {transfer_params['target_env']} model")
-    print(f"{'='*60}")
+    # # ============================================================================
+    # # PHASE 2: TRANSFER WEIGHTS TO TARGET MODEL
+    # # ============================================================================
+    # print(f"\n{'='*60}")
+    # print(f"PHASE 2: Transferring weights to {transfer_params['target_env']} model")
+    # print(f"{'='*60}")
     
-    # Setup target model
-    target_model, _ = setup_model(target_env, target_pid_params, model_type="PID")
+    # # Setup target model
+    # target_model, _ = setup_model(target_env, target_pid_params, model_type="PID")
 
-    # Use projection layer for weight transfer to handle different observation space sizes
-    transfer_weights(source_model, target_model, use_projection=True)
+    # # Use projection layer for weight transfer to handle different observation space sizes
+    # transfer_weights(source_model, target_model, use_projection=True)
     
-    # ============================================================================
-    # PHASE 3: TRAIN ON TARGET ENVIRONMENT
-    # ============================================================================
-    print(f"\n{'='*60}")
-    print(f"PHASE 3: Training on {transfer_params['target_env']} environment")
-    print(f"{'='*60}")
+    # # ============================================================================
+    # # PHASE 3: TRAIN ON TARGET ENVIRONMENT
+    # # ============================================================================
+    # print(f"\n{'='*60}")
+    # print(f"PHASE 3: Training on {transfer_params['target_env']} environment")
+    # print(f"{'='*60}")
     
-    _ = setup_buffer(target_model, transfer_params['target_env'], target_env)    
-    if transfer_params['target_env'] == 'gym':
-        all_total_rewards = train_gym_environment(
-            target_model, target_env, target_env_params, target_pid_params, transfer_params['fix_source_weights']
-        )
-    else:
-        all_total_rewards = None
-        print("Target environment training skipped (not gym)")
+    # _ = setup_buffer(target_model, transfer_params['target_env'], target_env)    
+    # if transfer_params['target_env'] == 'gym':
+    #     all_total_rewards = train_gym_environment(
+    #         target_model, target_env, target_env_params, target_pid_params, transfer_params['fix_source_weights']
+    #     )
+    # else:
+    #     all_total_rewards = None
+    #     print("Target environment training skipped (not gym)")
 
-    # Plot results from target environment
-    save_and_plot_results(transfer_params['target_env'], target_env_params, target_pid_params, reward_history=all_total_rewards, save=False, plot=True)
+    # # Plot results from target environment
+    # save_and_plot_results(transfer_params['target_env'], target_env_params, target_pid_params, reward_history=all_total_rewards, save=False, plot=True)
     
-    # ============================================================================
-    # PHASE 4: SAVE RESULTS AND PLOT
-    # ============================================================================
-    # Save source environment results
-    save_and_plot_results(transfer_params['source_env'], source_env_params, source_pid_params, recorder=source_recorder, save=True, plot=False)
-    # Save target environment results
-    save_and_plot_results(transfer_params['target_env'], target_env_params, target_pid_params, reward_history=all_total_rewards, save=True, plot=False)
+    # # ============================================================================
+    # # PHASE 4: SAVE RESULTS AND PLOT
+    # # ============================================================================
+    # # Save source environment results
+    # save_and_plot_results(transfer_params['source_env'], source_env_params, source_pid_params, recorder=source_recorder, save=True, plot=False)
+    # # Save target environment results
+    # save_and_plot_results(transfer_params['target_env'], target_env_params, target_pid_params, reward_history=all_total_rewards, save=True, plot=False)
     
-    print("\n🎉 Transfer learning complete!")
-    print(f"Successfully transferred from {transfer_params['source_env']} to {transfer_params['target_env']}")
-    if transfer_params['fix_source_weights'] > 0:
-        print(f"Fixed transferred weights for first {transfer_params['fix_source_weights']} episodes")
+    # print("\n🎉 Transfer learning complete!")
+    # print(f"Successfully transferred from {transfer_params['source_env']} to {transfer_params['target_env']}")
+    # if transfer_params['fix_source_weights'] > 0:
+    #     print(f"Fixed transferred weights for first {transfer_params['fix_source_weights']} episodes")
 
     
 

@@ -192,7 +192,7 @@ class RNNQNetwork(QNetwork):
     def enforce_signs(self):
         with th.no_grad():
             for name, p in self.named_parameters():
-                if 'weight' in name:
+                if 'weight' in name and 'eplhb' not in name:
                     sign_mask = self.sign_masks[name]
                     p.data = th.abs(p.data) * sign_mask
         
@@ -360,12 +360,12 @@ class EPLHbNetwork(QNetwork):
             }
 
     # do not sign fix eplhb
-    # def enforce_signs(self):
-    #     with th.no_grad():
-    #         for name, p in self.named_parameters():
-    #             if 'weight' in name:
-    #                 sign_mask = self.sign_masks[name]
-    #                 p.data = th.abs(p.data) * sign_mask
+    def enforce_signs(self):
+        with th.no_grad():
+            for name, p in self.named_parameters():
+                if 'weight' in name and 'eplhb' not in name:
+                    sign_mask = self.sign_masks[name]
+                    p.data = th.abs(p.data) * sign_mask
 
     def reset_hidden(self, batch_size: int = 1, device: th.device = None) -> None:
         """Zero out the hidden state. Call this at the start of each new episode."""
