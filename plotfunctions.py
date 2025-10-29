@@ -5,6 +5,43 @@ import pickle
 from matplotlib import cm
 import matplotlib.colors as mcolors
 
+
+def plot_weight_changes(initial_weights, final_weights, seed, save=False):
+    layer_names = list(initial_weights.keys())
+    num_layers = len(layer_names)
+
+    # Calculate grid size for subplots
+    ncols = 3  # you can adjust
+    nrows = (num_layers + ncols - 1) // ncols
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 5 * nrows))
+    axes = axes.flatten()  # flatten for easy indexing
+
+    for i, name in enumerate(layer_names):
+        w_init = initial_weights[name].flatten()
+        w_final = final_weights[name].flatten()
+
+        ax = axes[i]
+        ax.scatter(w_init, w_final, s=2, alpha=0.4)
+        ax.set_title(f'Weight change: {name}')
+        ax.set_xlabel('Initial weight')
+        ax.set_ylabel('Final weight')
+        
+        # Add x=0 and y=0 lines
+        ax.axhline(0, color='r', linestyle='--', linewidth=1)
+        ax.axvline(0, color='r', linestyle='--', linewidth=1)
+
+    # Hide any unused subplots
+    for j in range(i + 1, len(axes)):
+        axes[j].axis('off')
+
+    plt.tight_layout()
+    if save:
+        plt.savefig(f"weight_changes_{seed}.png")
+    else:
+        plt.show()
+        plt.close()
+
 def plotSEM(x, y, omissions=None, label=None, color=None, ax=None, alpha=0.2, fill=False):
     """Plot with shaded error margin and red for omissions."""
     if ax is None:

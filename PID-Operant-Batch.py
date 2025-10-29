@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os, sys, copy, pickle, itertools, random
+from typing import Any
 import pandas as pd
 
 import torch
@@ -19,15 +20,18 @@ from TabularPID.Agents.DQN.DQN_gain_adapter import NoGainAdapter, SingleGainAdap
 from OperantGym import OperantLearning
 from plotfunctions import plot_figure
 from summary_plots import plot_pid_results
+from plotfunctions import plot_weight_changes
 from recorder import SessionRecorder
 from types import SimpleNamespace
+
+import matplotlib.pyplot as plt
 
 
 # Base hyperparameters from your original script
 # session_params defined here
 base_session_params = {
     "pairing":          'reward',
-    "num_trials":       200,
+    "num_trials":       20,
     "pre_steps":        10,
     "post_steps":       40,
     "enl_duration":     (2.0, 4.0),
@@ -165,6 +169,13 @@ def train_once(session_params, pid_params):
         policy_evaluation=pid_params["policy_evaluation"],
         replay_buffer_class=ExtendedReplayBuffer,
     )
+
+    # store initial weights
+    initial_weights = {
+        name: p.detach().cpu().clone()
+        for name, p in model.q_net.named_parameters()
+        if 'weight' in name
+    }
     gain_adapter.set_model(model)
 
     # Set up logging
@@ -309,8 +320,16 @@ def train_once(session_params, pid_params):
 
     pbar.close()
 
-    return recorder, retrain, False
+    final_weights = {
+        name: p.detach().cpu().clone()
+        for name, p in model.q_net.named_parameters()
+        if 'weight' in name
+    }
 
+    plot_weight_changes(initial_weights, final_weights, pid_params["seed"], save=True)
+
+    return recorder, retrain, False
+    
 # ----------------------------------------------------------------
 # Main execution block for running the sweep
 # ----------------------------------------------------------------

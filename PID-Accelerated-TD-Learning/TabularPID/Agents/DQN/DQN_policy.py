@@ -56,6 +56,7 @@ class QNetwork(BasePolicy):
         q_net = create_mlp(self.features_dim, action_dim, self.net_arch, self.activation_fn)
         self.q_net = nn.Sequential(*q_net)
 
+
     def forward(self, obs: th.Tensor) -> th.Tensor:
         """
         Predict the q-values.
@@ -113,6 +114,7 @@ class RNNQNetwork(QNetwork):
         rnn_hidden_size: int = 128,
         rnn_num_layers: int = 1,
         rnn_type: str = "RNN",
+        fixed_sign: bool = True,
     ) -> None:
         # initialize features_extractor + MLP defaults
         super().__init__(
@@ -128,10 +130,12 @@ class RNNQNetwork(QNetwork):
         self.rnn_input_size = rnn_input_size
         self.rnn_hidden_size = rnn_hidden_size
         self.rnn_num_layers  = rnn_num_layers
+        self.fixed_sign = fixed_sign
 
         # Create input projection from obs to rnn_input_size
         self.input_projection = nn.Linear(self.features_dim, rnn_input_size)
         self.input_norm = nn.LayerNorm(int(rnn_input_size))
+
 
         # Select RNN type
         if rnn_type == "GRU":
@@ -176,6 +180,23 @@ class RNNQNetwork(QNetwork):
         # placeholder for hidden state; will be (num_layers, batch, hidden_size)
         self._h = None
 
+        # store initial sign of all parameters
+        with th.no_grad():
+            self.sign_masks = {
+                name: th.sign(p.data.clone())
+                for name, p in self.named_parameters()
+                if 'weight' in name
+            }
+    
+
+    def enforce_signs(self):
+        with th.no_grad():
+            for name, p in self.named_parameters():
+                if 'weight' in name:
+                    sign_mask = self.sign_masks[name]
+                    p.data = th.abs(p.data) * sign_mask
+        
+
     def reset_hidden(self, batch_size: int = 1, device: th.device = None) -> None:
         """Zero out the hidden state. Call this at the start of each new episode."""
         device = device or next(self.parameters()).device
@@ -204,6 +225,14 @@ class RNNQNetwork(QNetwork):
         # 6) squash seq dim and feed through your MLP head
         out = out.squeeze(1)            # (batch, hidden)
         return self.post_rnn(out)       # (batch, num_actions)
+    
+    def _collect_weight_vector(self):
+        """Flatten and concatenate all weight tensors (not biases) into one vector."""
+        weight_list = []
+        for name, p in self.named_parameters():
+            if "weight" in name and p.requires_grad:
+                weight_list.append(p.data.view(-1))
+        return th.cat(weight_list)
     
 
 class EPLHbNetwork(QNetwork):
@@ -292,6 +321,7 @@ class EPLHbNetwork(QNetwork):
             activation_fn=self.activation_fn,
         )
         self.post_rnn = nn.Sequential(*layers)
+
 
         # --- NEW: EPLHb MLP ---
         # input is [rnn_hidden + Q-MLP pre-output], map to a scalar
