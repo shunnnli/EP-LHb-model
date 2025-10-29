@@ -257,6 +257,7 @@ class EPLHbNetwork(QNetwork):
         eplhb_hidden_dim: int = 32,
         initial_eplhb_coeff: float = 0.01,
         rnn_type: str = "RNN",
+        fixed_sign: bool = True,
     ) -> None:
         # initialize features_extractor + MLP defaults
         super().__init__(
@@ -273,7 +274,8 @@ class EPLHbNetwork(QNetwork):
         self.rnn_hidden_size = rnn_hidden_size
         self.rnn_num_layers  = rnn_num_layers
         self.eplhb_hidden_dim = eplhb_hidden_dim
-
+        self.fixed_sign = fixed_sign
+        
         # Create input projection from obs to rnn_input_size
         self.input_projection = nn.Linear(self.features_dim, rnn_input_size)
         self.input_norm = nn.LayerNorm(int(rnn_input_size))
@@ -348,6 +350,22 @@ class EPLHbNetwork(QNetwork):
 
         # placeholder for hidden state; will be (num_layers, batch, hidden_size)
         self._h = None
+
+        # store initial sign of all parameters
+        with th.no_grad():
+            self.sign_masks = {
+                name: th.sign(p.data.clone())
+                for name, p in self.named_parameters()
+                if 'weight' in name
+            }
+
+    # do not sign fix eplhb
+    # def enforce_signs(self):
+    #     with th.no_grad():
+    #         for name, p in self.named_parameters():
+    #             if 'weight' in name:
+    #                 sign_mask = self.sign_masks[name]
+    #                 p.data = th.abs(p.data) * sign_mask
 
     def reset_hidden(self, batch_size: int = 1, device: th.device = None) -> None:
         """Zero out the hidden state. Call this at the start of each new episode."""
