@@ -49,7 +49,7 @@ experiment_params = {
 
 operant_session_params = {
     "pairing":          'reward',
-    "num_trials":       20,
+    "num_trials":       200,
     "pre_steps":        10,           # 1 s @ 100 ms
     "post_steps":       40,           # 5 s @ 100 ms
     "enl_duration":     (2.0, 4.0),   # seconds
