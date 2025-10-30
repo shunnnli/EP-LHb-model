@@ -43,6 +43,7 @@ def setup_model(env, pid_params, device="cpu", model_type="EPLHb"):
         with_RNN_layer=True,
         rnn_type=pid_params["rnn_type"],
         fixed_sign=pid_params["fixed_sign"],
+        eplhb_fixed_sign=pid_params["eplhb_fixed_sign"]
     )
 
     # EPLHb-specific optimizer kwargs

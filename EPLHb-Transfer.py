@@ -32,10 +32,10 @@ seed = 12242
 experiment_params = {
     "kd_values":        [0],   # sweep over kd (add values as needed)
     "omission_probs":   [0],   # sweep over omission probability
-    "repeats":          1,     # repeats per combination
+    "repeats":          10,     # repeats per combination
     "max_batch_sizes":  [1],   # grid values for max_batch_size
     "num_recents":      [1],   # grid values for num_recent
-    "fixed_sign":       [True, False]
+    "eplhb_fixed_sign":       [True, False]
 }
 
 
@@ -44,7 +44,7 @@ experiment_params = {
 # ============================================================================
 operant_session_params = {
     "pairing":          'reward',
-    "num_trials":       20,
+    "num_trials":       200,
     "pre_steps":        10,           # 1 s @ 100 ms
     "post_steps":       40,           # 5 s @ 100 ms
     "enl_duration":     (2.0, 4.0),   # seconds
@@ -97,7 +97,8 @@ operant_pid_params = {
     "beta": 0.95,
     "d_tau": 1,
     "tabular_d": False,
-    "fixed_sign": False,
+    "fixed_sign": True,
+    "eplhb_fixed_sign": False,
 }
 
 # ============================================================================
@@ -148,7 +149,6 @@ gym_pid_params = {
     "beta": 0.95,
     "d_tau": 1,
     "tabular_d": False,
-    "fixed_sign": False
 }
 
 # ============================================================================
@@ -191,7 +191,7 @@ def setup_environment(env_type):
 # ============================================================================
 def save_and_plot_results(env_type, env_params, pid_params, results=None,
                         recorder=None, stuck_counts=None, save_name=None, reward_history=None, 
-                        save=True, plot=True, r=None, kd=None, omit=None, max_b=None, num_r=None, fixed_sign=None):
+                        save=True, plot=True, r=None, kd=None, omit=None, max_b=None, num_r=None, eplhb_fixed_sign=None):
     """Save results and generate plots"""
     print(f"\n{'='*60}")
     print("Saving results and plotting")
@@ -202,7 +202,7 @@ def save_and_plot_results(env_type, env_params, pid_params, results=None,
     
     if save:
         # Store both params and recorder
-        results[(kd, omit, max_b, num_r, fixed_sign, r)] = {
+        results[(kd, omit, max_b, num_r, eplhb_fixed_sign, r)] = {
             "session_params": env_params,
             "pid_params":     env_params,
             "recorder":       recorder,
@@ -267,7 +267,7 @@ def run_transfer_learning():
                 source_pid_params["seed"] = new_seed
 
                 # Train once with the current parameters
-                print(f"Training with fixed_sign = {fixed_sign}, kd={kd}, omit={omit}, "
+                print(f"Training with eplhb_fixed_sign = {eplhb_fixed_sign}, kd={kd}, omit={omit}, "
                         f"max_batch={max_b}, num_recent={num_r}, "
                         f"(repeat {r + 1}/{repeats})")
 
@@ -278,7 +278,7 @@ def run_transfer_learning():
                     stuck_counts += 1
             
             # Plot and save source environment summary fig
-            save_name = f"kd_{kd}_omit_{omit}_maxB_{max_b}_numR_{num_r}_fixedSign_{fixed_sign}_seed_{new_seed}.png"
+            save_name = f"kd_{kd}_omit_{omit}_maxB_{max_b}_numR_{num_r}_eplhbfixedSign_{eplhb_fixed_sign}_seed_{new_seed}.png"
 
             results = save_and_plot_results(
                 transfer_params['source_env'],
@@ -289,11 +289,11 @@ def run_transfer_learning():
                 stuck_counts=stuck_counts,
                 save_name=save_name,
                 r=r,
-                kd=kd, omit=omit, max_b=max_b, num_r=num_r, fixed_sign=fixed_sign   
+                kd=kd, omit=omit, max_b=max_b, num_r=num_r, eplhb_fixed_sign=eplhb_fixed_sign   
             )
 
         # Save everything
-        result_file = f"results_Kd_{kd}_omit_{omit}_maxB_{max_b}_numR_{num_r}_fixedSign_{fixed_sign}.pkl"
+        result_file = f"results_Kd_{kd}_omit_{omit}_maxB_{max_b}_numR_{num_r}_eplhbfixedSign_{eplhb_fixed_sign}.pkl"
         with open(os.path.join(save_dir, result_file), "wb") as f:
             pickle.dump(results, f)
 
@@ -358,7 +358,7 @@ if __name__ == "__main__":
 
     max_batch_sizes  = experiment_params["max_batch_sizes"]
     num_recents      = experiment_params["num_recents"]
-    fixed_sign_bools = experiment_params["fixed_sign"]
+    eplhb_fixed_bools = experiment_params["eplhb_fixed_sign"]
 
     # Save results settings
     batch_name = 'kd_omission_sweep'
@@ -375,19 +375,19 @@ if __name__ == "__main__":
     for max_b, num_r in zip(max_batch_sizes, num_recents):
         print(f"\n=== Testing max_batch_size={max_b}, num_recent={num_r} ===")
 
-        for kd, omit, fixed_sign in itertools.product(
-            kd_values, omission_probs, fixed_sign_bools
+        for kd, omit, eplhb_fixed_sign in itertools.product(
+            kd_values, omission_probs, eplhb_fixed_bools
         ):
             operant_session_params["omission_prob"] = omit
             operant_session_params["max_batch_size"] = max_b
             operant_session_params["num_recent"] = num_r
             operant_pid_params["kd"] = kd
             operant_pid_params["meta_lr_d"] = min(kd, 0.1)
-            operant_pid_params["fixed_sign"] = fixed_sign
+            operant_pid_params["eplhb_fixed_sign"] = eplhb_fixed_sign
 
             print(f"\n--- Running sweep: kd={kd}, omission_prob={omit}, "
                 f"max_batch_size={max_b}, buffer_trials_recent={num_r}, "
-                f"fixed_sign={fixed_sign} ---")
+                f"eplhb_fixed_sign={eplhb_fixed_sign} ---")
 
             run_transfer_learning()
 
