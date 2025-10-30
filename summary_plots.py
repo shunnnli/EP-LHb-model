@@ -38,12 +38,12 @@ def extract_batch_data(batches):
                         kv[0][0]) # kd
     )
 
-    for idx, ((kd, omit, max_b, num_r), batch_data) in enumerate(sorted_items):
+    for idx, ((kd, omit, max_b, num_r, fixed_sign), batch_data) in enumerate(sorted_items):
         all_rewards = []
         td_amplitudes = []  # List of np.arrays (one per session)
         success_per_session = []
         cue_errors = []  # List of np.arrays (one per session)
-        batch_name = (kd, omit, max_b, num_r)  # Use tuple as batch name
+        batch_name = (kd, omit, max_b, num_r, fixed_sign)  # Use tuple as batch name
         ant_licks = []
         all_stuck_counts = []
         batch_extras = {}
@@ -157,8 +157,10 @@ def load_batches(root_dir,
                 filter_kd=None, 
                 filter_omit=None, 
                 filter_max_b=None, 
-                filter_num_r=None, 
-                filter_repeat=None):
+                filter_num_r=None,
+                filter_fixed_sign=None,
+                filter_repeat=None,
+                ):
     latest = get_latest_run_folder(root_dir)
 
     # Step 1: Combine all .pkl files inside the latest folder
@@ -173,15 +175,15 @@ def load_batches(root_dir,
 
     # group by (kd, omit, max_b, num_r)
     batches = {}
-    for (kd, omit, max_b, num_r, repeat), data in raw_results.items():
-        batches.setdefault((kd, omit, max_b, num_r), {})[repeat] = data
+    for (kd, omit, max_b, num_r, fixed_sign, repeat), data in raw_results.items():
+        batches.setdefault((kd, omit, max_b, num_r, fixed_sign), {})[repeat] = data
     
     # Apply filters based on input parameters
     if any([filter_kd is not None, filter_omit is not None, filter_max_b is not None, 
-            filter_num_r is not None, filter_repeat is not None]):
+            filter_num_r is not None, filter_fixed_sign is not None, filter_repeat is not None, ]):
         
         filtered_batches = {}
-        for (kd, omit, max_b, num_r), batch_data in batches.items():
+        for (kd, omit, max_b, num_r, fixed_sign), batch_data in batches.items():
             # Check if this batch matches all specified filters
             if filter_kd is not None and kd not in filter_kd:
                 continue
@@ -191,19 +193,21 @@ def load_batches(root_dir,
                 continue
             if filter_num_r is not None and num_r not in filter_num_r:
                 continue
+            if filter_fixed_sign is not None and fixed_sign not in filter_fixed_sign:
+                continue
             
             # For repeat filtering, we need to check individual sessions
             if filter_repeat is not None:
                 filtered_sessions = {repeat: data for repeat, data in batch_data.items() 
                                   if repeat in filter_repeat}
                 if filtered_sessions:  # Only keep batch if it has matching repeats
-                    filtered_batches[(kd, omit, max_b, num_r)] = filtered_sessions
+                    filtered_batches[(kd, omit, max_b, num_r, fixed_sign)] = filtered_sessions
             else:
-                filtered_batches[(kd, omit, max_b, num_r)] = batch_data
+                filtered_batches[(kd, omit, max_b, num_r, fixed_sign)] = batch_data
         
         batches = filtered_batches
         print(f"Applied filters: kd={filter_kd}, omit={filter_omit}, max_b={filter_max_b}, "
-              f"num_r={filter_num_r}, repeat={filter_repeat}")
+              f"num_r={filter_num_r}, repeat={filter_repeat}, fixed_sign={filter_fixed_sign}")
         print(f"Filtered from {len(raw_results)} to {len(batches)} batches")
 
     # extract data
@@ -219,10 +223,11 @@ def plot_pid_results(root_dir="PID-results",
                     filter_max_b=None, 
                     filter_num_r=None, 
                     filter_repeat=None,
+                    filter_fixed_sign=None,
                     title="PID Results"):
     latest = get_latest_run_folder(root_dir)
     all_rewards, all_td, success_trials, cue_errors, t_axis, ant_licks, stuck_counts, all_batch_extras = load_batches(
-        root_dir, filter_kd, filter_omit, filter_max_b, filter_num_r, filter_repeat)
+        root_dir, filter_kd, filter_omit, filter_max_b, filter_num_r, filter_fixed_sign, filter_repeat,)
     
     # ------- plot results -------
     fig = plt.figure(figsize=(26, 8))  # make figure a bit wider
@@ -237,31 +242,31 @@ def plot_pid_results(root_dir="PID-results",
 
 
     # Set up colors and x-axis
-    # --- 1) figure out your ordering (num_r, max_b, omit, kd) ---
+    # --- 1) figure out your ordering (fixed_sign, num_r, max_b, omit, kd) ---
     sorted_items = sorted(
         all_td.items(), 
-        key=lambda kv: (kv[0][3], kv[0][2], kv[0][1], kv[0][0])   # (num_r, max_b, omit, kd)
+        key=lambda kv: (kv[0][4], kv[0][3], kv[0][2], kv[0][1], kv[0][0])   # (fixed_sign, num_r, max_b, omit, kd)
     )
 
     sorted_licks = sorted(
         ant_licks.items(),
-        key=lambda kv: (kv[0][3], kv[0][2], kv[0][1], kv[0][0])  # (num_r, max_b, omit, kd)
+        key=lambda kv: (kv[0][4], kv[0][3], kv[0][2], kv[0][1], kv[0][0])   # (fixed_sign, num_r, max_b, omit, kd)
     )
 
     # --- 2) extract the unique omits in order and pick a base color for each ---
-    unique_omits = sorted({omit for (kd, omit, max_b, num_r) in all_td.keys()})
+    unique_omits = sorted({omit for (kd, omit, max_b, num_r, fixed_sign) in all_td.keys()})
     base_rgbs    = plt.cm.tab10(np.linspace(0, 1, len(unique_omits)))
     omit_to_rgb  = dict(zip(unique_omits, base_rgbs))  # { omit → (r,g,b,…) }
 
     # --- 3) group the kd's under each omit so you can space their alphas ---
     kd_groups = {
-        omit: sorted(k for (k, o, m, n) in all_td.keys() if o == omit)
+        omit: sorted(k for (k, o, m, n, f) in all_td.keys() if o == omit)
         for omit in unique_omits
     }
 
     # --- 4) build a parallel list of RGBA tuples in your plotting order ---
     plot_colors = []
-    for (kd, omit, max_b, num_r), _ in sorted_items:
+    for (kd, omit, max_b, num_r, fixed_sign), _ in sorted_items:
         grp = kd_groups[omit]
         idx = grp.index(kd)
         # linearly space alpha between 0.3 and 1.0 for this group
@@ -275,7 +280,7 @@ def plot_pid_results(root_dir="PID-results",
 
     # Rewards
     print("Plotting reward distributions...")
-    labels = [f"kd={k},omit={o},max_b={m},num_r={n}" for (k, o, m, n) in all_rewards]
+    labels = [f"kd={k},omit={o},max_b={m},num_r={n}, fixed_sign={f}" for (k, o, m, n, f) in all_rewards]
     plotScatterBar(all_rewards.values(),labels=labels, colors=colors, style='box', ax=ax1)
     ax1.set_ylabel("Reward")
     ax1.set_title("Combined Reward Distribution Per Batch")
@@ -284,7 +289,7 @@ def plot_pid_results(root_dir="PID-results",
     # TD Amplitudes: last 25% of trials per session
     print("Plotting TD amplitudes (last 25%)...")
     td_flat_data = []
-    for (kd, omit, max_b, num_r), td_sessions in sorted_items:
+    for (kd, omit, max_b, num_r, fixed_sign), td_sessions in sorted_items:
         trimmed = [arr[int(len(arr) * 0.75):] for arr in td_sessions]  # last 25% of each session
         td_flat_data.append(np.concatenate(trimmed))
     plotScatterBar(td_flat_data, labels=labels, colors=colors, style='box', ax=ax2)
@@ -299,7 +304,7 @@ def plot_pid_results(root_dir="PID-results",
     ax3.set_title("Success trials (reward > 2) after change start")
 
     # Anticipatory Licks
-    for (kd, omit, max_b, num_r), ant_licks_sessions in sorted_licks:
+    for (kd, omit, max_b, num_r, fixed_sign), ant_licks_sessions in sorted_licks:
         # Determine standard_length from the first session's length
         if len(ant_licks_sessions) == 0:
             continue  # skip if no sessions
@@ -313,7 +318,7 @@ def plot_pid_results(root_dir="PID-results",
         sem = np.std(ant_licks_sessions_array, axis=0) / np.sqrt(ant_licks_sessions_array.shape[0])
 
         x = np.arange(1, avg.shape[0] + 1)
-        ax4.plot(x, avg, label=f"kd={kd}, omit={omit}, max_b={max_b}, num_r={num_r}")
+        ax4.plot(x, avg, label=f"kd={kd}, omit={omit}, max_b={max_b}, num_r={num_r}, fixed_sign={fixed_sign}")
         ax4.fill_between(x, avg - sem, avg + sem, alpha=0.3)  # standard error band
 
     ax4.set_ylabel("Anticipatory Licks (avg)")
@@ -326,7 +331,7 @@ def plot_pid_results(root_dir="PID-results",
     combos = list(stuck_counts.keys())
     means = [np.mean(stuck_counts[c]) for c in combos]
     sems  = [np.std(stuck_counts[c], ddof=1) / np.sqrt(len(stuck_counts[c])) for c in combos]
-    labels_stuck = [f"kd={kd},omit={omit},max_b={m},num_r={n}" for (kd, omit, m, n) in combos]
+    labels_stuck = [f"kd={kd},omit={omit},max_b={m},num_r={n},fixed_sign={f}" for (kd, omit, m, n, f) in combos]
     ax5.bar(labels_stuck, means, yerr=sems, capsize=5, color='skyblue')
     ax5.set_ylabel("Stuck Counts (mean ± SEM)")
     ax5.set_title("Average Stuck Counts Per Repeat")

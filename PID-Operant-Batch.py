@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os, sys, copy, pickle, itertools, random
+from typing import Any
 import pandas as pd
 
 import torch
@@ -19,15 +20,18 @@ from TabularPID.Agents.DQN.DQN_gain_adapter import NoGainAdapter, SingleGainAdap
 from OperantGym import OperantLearning
 from plotfunctions import plot_figure
 from summary_plots import plot_pid_results
+from plotfunctions import plot_weight_changes
 from recorder import SessionRecorder
 from types import SimpleNamespace
+
+import matplotlib.pyplot as plt
 
 
 # Base hyperparameters from your original script
 # session_params defined here
 base_session_params = {
     "pairing":          'reward',
-    "num_trials":       10,
+    "num_trials":       20,
     "pre_steps":        10,
     "post_steps":       40,
     "enl_duration":     (2.0, 4.0),
@@ -46,7 +50,7 @@ base_session_params = {
     "num_recent":       1,   # number of consecutive recent trials to fill replay buffer. ex. 5 num_recent, means 5 random old trials in size 10 replay buffer
     "buffer_size":      1,
     "dt":               0.1,
-    "continual_learning": True,
+    "continual_learning": False,
     "change_start":     200,
     "change_interval":  50,
 }
@@ -82,7 +86,9 @@ base_pid_params = {
     "seed":                 26,
     "rnn_type": "GRU",  # Options: "RNN", "GRU", "LSTM". Change as needed.
     "l2_lambda": 1e-6,  # L2 regularization strength for EPLHb weights
+    "fixed_sign": True,
 }
+
 
 
 # --------------------------------------------------------
@@ -130,11 +136,13 @@ def train_once(session_params, pid_params):
         meta_lr_d=pid_params["meta_lr_d"],
     )
 
+
     policy_kwargs = dict(
         net_arch=[pid_params["inner_size"], pid_params["inner_size"]],
         optimizer_class=optim.Adam,
         with_RNN_layer=True,
         rnn_type=pid_params["rnn_type"], # RNN, GRU, LSTM
+        fixed_sign=pid_params["fixed_sign"],
     )
 
     model = PID_DQN(
@@ -165,6 +173,20 @@ def train_once(session_params, pid_params):
         policy_evaluation=pid_params["policy_evaluation"],
         replay_buffer_class=ExtendedReplayBuffer,
     )
+
+    # store initial weights
+    initial_weights_q_net = {
+        name: p.detach().cpu().clone()
+        for name, p in model.q_net.named_parameters()
+        if 'weight' in name
+    }
+
+    initial_weights_q_net_target = {
+        name: p.detach().cpu().clone()
+        for name, p in model.q_net.named_parameters()
+        if 'weight' in name
+    }
+    
     gain_adapter.set_model(model)
 
     # Set up logging
@@ -309,20 +331,34 @@ def train_once(session_params, pid_params):
 
     pbar.close()
 
-    return recorder, retrain, False
+    final_weights_q_net = {
+        name: p.detach().cpu().clone()
+        for name, p in model.q_net.named_parameters()
+        if 'weight' in name
+    }
+    final_weights_q_net_target = {
+        name: p.detach().cpu().clone()
+        for name, p in model.q_net.named_parameters()
+        if 'weight' in name
+    }
 
+    plot_weight_changes(initial_weights_q_net, final_weights_q_net, pid_params["seed"], "q_net", save=True)
+    plot_weight_changes(initial_weights_q_net_target, final_weights_q_net_target, pid_params["seed"], "q_net_target", save=True)
+
+    return recorder, retrain, False
+    
 # ----------------------------------------------------------------
 # Main execution block for running the sweep
 # ----------------------------------------------------------------
 if __name__ == "__main__":
     # Define sweep grid
-    kd_values        = [0, 0.1]  # PID derivative gain values
-    meta_lr_d        = [0, 0.1]  # Adapt ON for kd
-    omission_probs   = [0, 0.1]
+    kd_values        = [0]  # PID derivative gain values
+    meta_lr_d        = [0]  # Adapt ON for kd
+    omission_probs   = [0]
     repeats          = 1  # Number of repeats for each combination
 
-    max_batch_sizes  = [1, 5]  # Different batch sizes to test
-    num_recents      = [1, 5]   # Different num_recent values to test
+    max_batch_sizes  = [1]  # Different batch sizes to test
+    num_recents      = [1]   # Different num_recent values to test
 
     # Save results settings
     batch_name = 'kd_omission_sweep'

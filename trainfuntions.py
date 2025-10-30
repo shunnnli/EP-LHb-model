@@ -7,6 +7,7 @@ from stable_baselines3.common.logger import configure
 from stable_baselines3.common.buffers import OnlineReplayBuffer, ExtendedReplayBuffer
 from TabularPID.Agents.DQN.DQN import EPLHb_DQN, PID_DQN
 from TabularPID.Agents.DQN.DQN_gain_adapter import NoGainAdapter, SingleGainAdapter, DiagonalGainAdapter, NetworkGainAdapter
+from plotfunctions import plot_weight_changes
 
 
 import numpy as np
@@ -41,6 +42,7 @@ def setup_model(env, pid_params, device="cpu", model_type="EPLHb"):
         optimizer_class=optim.Adam,
         with_RNN_layer=True,
         rnn_type=pid_params["rnn_type"],
+        fixed_sign=pid_params["fixed_sign"],
     )
 
     # EPLHb-specific optimizer kwargs
@@ -200,6 +202,19 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer=No
     """Train on operant environment (matching PID-Operant-Batch.py structure)"""
 
     print(f"Training on operant environment")
+
+    # store initial weights
+    initial_weights_q_net = {
+        name: p.detach().cpu().clone()
+        for name, p in model.q_net.named_parameters()
+        if 'weight' in name
+    }
+
+    initial_weights_q_net_target = {
+        name: p.detach().cpu().clone()
+        for name, p in model.q_net.named_parameters()
+        if 'weight' in name
+    }
     
     # Setup logging and recorder
     model.set_logger(configure(None, []))
@@ -415,8 +430,25 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer=No
         # if orig_buffer is not None:
         #     model.replay_buffer = orig_buffer
     
+    # store initial weights
+    final_weights_q_net = {
+        name: p.detach().cpu().clone()
+        for name, p in model.q_net.named_parameters()
+        if 'weight' in name
+    }
+
+    final_weights_q_net_target = {
+        name: p.detach().cpu().clone()
+        for name, p in model.q_net.named_parameters()
+        if 'weight' in name
+    }
+    
     print(f"Operant environment training complete! Trained for {num_trials} trials.")
     pbar.close()
+
+    plot_weight_changes(initial_weights_q_net, final_weights_q_net, pid_params["seed"], "q_net", save=True)
+    plot_weight_changes(initial_weights_q_net_target, final_weights_q_net_target, pid_params["seed"], "q_net_target", save=True)
+
     return recorder, retrain, False
 
 

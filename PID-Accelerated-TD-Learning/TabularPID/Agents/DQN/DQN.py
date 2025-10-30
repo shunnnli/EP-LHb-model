@@ -249,7 +249,8 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             else:
                 # Use BPTT with random sampling
                 return self._train_recurrent(gradient_steps, batch_size=batch_size, seq_len=seq_len)
-
+        
+        
         losses = []
         l2_lambda = getattr(self, 'l2_lambda', None)
         if l2_lambda is None:
@@ -364,6 +365,11 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             
             # Update all parameters with the optimizer
             self.policy.optimizer.step()
+            
+            if self.policy_kwargs["fixed_sign"]:
+                self.policy.q_net.enforce_signs()
+                self.policy.q_net_target.enforce_signs()
+
 
         # Increase update counter
         self._n_updates += gradient_steps
@@ -569,6 +575,9 @@ class EPLHb_DQN(OffPolicyAlgorithm):
             
             # Update all parameters with the optimizer
             optim.step()
+            if self.policy_kwargs["fixed_sign"]:
+                self.policy.q_net.enforce_signs()
+                self.policy.q_net_target.enforce_signs()
 
             losses.append(final_loss.item())
 
@@ -833,6 +842,7 @@ class PID_DQN(OffPolicyAlgorithm):
         # "epsilon" for the epsilon-greedy exploration
         self.exploration_rate = 0.0
 
+
         if _init_setup_model:
             self._setup_model()
 
@@ -1082,6 +1092,9 @@ class PID_DQN(OffPolicyAlgorithm):
             loss.backward()
             th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
             optim.step()
+            if self.policy_kwargs["fixed_sign"]:
+                self.policy.q_net.enforce_signs()
+                self.policy.q_net_target.enforce_signs()
 
         # 7) logging (same as non‐recurrent)
         self._n_updates += gradient_steps
