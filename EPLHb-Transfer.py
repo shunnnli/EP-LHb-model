@@ -43,7 +43,7 @@ experiment_params = {
 # ============================================================================
 operant_session_params = {
     "pairing":          'reward',
-    "num_trials":       100,
+    "num_trials":       200,
     "pre_steps":        10,           # 1 s @ 100 ms
     "post_steps":       40,           # 5 s @ 100 ms
     "enl_duration":     (2.0, 4.0),   # seconds
@@ -86,7 +86,7 @@ operant_pid_params = {
     "dump_buffer": False,
     "is_double": False,
     "policy_evaluation": False,
-    "seed": 12242,
+    "seed": seed,
     "kp": 1.0,
     "ki": 0.0,
     "kd": 0.0,
@@ -96,7 +96,7 @@ operant_pid_params = {
     "beta": 0.95,
     "d_tau": 1,
     "tabular_d": False,
-    "fixed_sign": True,
+    "fixed_sign": False,
 }
 
 # ============================================================================
@@ -147,7 +147,7 @@ gym_pid_params = {
     "beta": 0.95,
     "d_tau": 1,
     "tabular_d": False,
-    "fixed_sign": True
+    "fixed_sign": False
 }
 
 # ============================================================================
