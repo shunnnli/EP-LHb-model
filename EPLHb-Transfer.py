@@ -32,7 +32,7 @@ seed = 12242
 experiment_params = {
     "kd_values":        [0],   # sweep over kd (add values as needed)
     "omission_probs":   [0],   # sweep over omission probability
-    "repeats":          10,     # repeats per combination
+    "repeats":          1,     # repeats per combination
     "max_batch_sizes":  [1],   # grid values for max_batch_size
     "num_recents":      [1],   # grid values for num_recent
     "fixed_sign":       [True, False]
@@ -44,7 +44,7 @@ experiment_params = {
 # ============================================================================
 operant_session_params = {
     "pairing":          'reward',
-    "num_trials":       200,
+    "num_trials":       20,
     "pre_steps":        10,           # 1 s @ 100 ms
     "post_steps":       40,           # 5 s @ 100 ms
     "enl_duration":     (2.0, 4.0),   # seconds
@@ -348,7 +348,7 @@ def run_transfer_learning():
     #     print(f"Fixed transferred weights for first {transfer_params['fix_source_weights']} episodes")
 
 # ============================================================================
-# ENTRY POINT
+# main
 # ============================================================================
 if __name__ == "__main__":
     # Define sweep grid

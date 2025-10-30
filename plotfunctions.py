@@ -38,6 +38,7 @@ def plot_weight_changes(initial_weights, final_weights, seed, name, save=False):
     plt.tight_layout()
     if save:
         plt.savefig(f"{name}_weight_changes_{seed}.png")
+        plt.close()
     else:
         plt.show()
         plt.close()
