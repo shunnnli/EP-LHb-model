@@ -115,6 +115,7 @@ class RNNQNetwork(QNetwork):
         rnn_num_layers: int = 1,
         rnn_type: str = "RNN",
         fixed_sign: bool = True,
+        eplhb_fixed_sign: bool = False,
     ) -> None:
         # initialize features_extractor + MLP defaults
         super().__init__(
@@ -131,6 +132,7 @@ class RNNQNetwork(QNetwork):
         self.rnn_hidden_size = rnn_hidden_size
         self.rnn_num_layers  = rnn_num_layers
         self.fixed_sign = fixed_sign
+        self.eplhb_fixed_sign = eplhb_fixed_sign
 
         # Create input projection from obs to rnn_input_size
         self.input_projection = nn.Linear(self.features_dim, rnn_input_size)
@@ -192,9 +194,16 @@ class RNNQNetwork(QNetwork):
     def enforce_signs(self):
         with th.no_grad():
             for name, p in self.named_parameters():
-                if 'weight' in name and 'eplhb' not in name:
-                    sign_mask = self.sign_masks[name]
-                    p.data = th.abs(p.data) * sign_mask
+                # fix all weights
+                if self.eplhb_fixed_sign:
+                    if 'weight' in name:
+                        sign_mask = self.sign_masks[name]
+                        p.data = th.abs(p.data) * sign_mask
+                # fix all except eplhb
+                else:
+                    if 'weight' in name and 'eplhb' not in name:
+                        sign_mask = self.sign_masks[name]
+                        p.data = th.abs(p.data) * sign_mask
         
 
     def reset_hidden(self, batch_size: int = 1, device: th.device = None) -> None:
@@ -258,6 +267,8 @@ class EPLHbNetwork(QNetwork):
         initial_eplhb_coeff: float = 0.01,
         rnn_type: str = "RNN",
         fixed_sign: bool = True,
+        eplhb_fixed_sign: bool = False,
+
     ) -> None:
         # initialize features_extractor + MLP defaults
         super().__init__(
@@ -275,6 +286,7 @@ class EPLHbNetwork(QNetwork):
         self.rnn_num_layers  = rnn_num_layers
         self.eplhb_hidden_dim = eplhb_hidden_dim
         self.fixed_sign = fixed_sign
+        self.eplhb_fixed_sign = eplhb_fixed_sign
         
         # Create input projection from obs to rnn_input_size
         self.input_projection = nn.Linear(self.features_dim, rnn_input_size)
@@ -359,13 +371,19 @@ class EPLHbNetwork(QNetwork):
                 if 'weight' in name
             }
 
-    # do not sign fix eplhb
     def enforce_signs(self):
         with th.no_grad():
             for name, p in self.named_parameters():
-                if 'weight' in name and 'eplhb' not in name:
-                    sign_mask = self.sign_masks[name]
-                    p.data = th.abs(p.data) * sign_mask
+                # fix all weights
+                if self.eplhb_fixed_sign:
+                    if 'weight' in name:
+                        sign_mask = self.sign_masks[name]
+                        p.data = th.abs(p.data) * sign_mask
+                # fix all except eplhb
+                else:
+                    if 'weight' in name and 'eplhb' not in name:
+                        sign_mask = self.sign_masks[name]
+                        p.data = th.abs(p.data) * sign_mask
 
     def reset_hidden(self, batch_size: int = 1, device: th.device = None) -> None:
         """Zero out the hidden state. Call this at the start of each new episode."""
@@ -481,6 +499,7 @@ class DQNPolicy(BasePolicy):
         with_EPLHb_layer: bool = False,
         rnn_type: str = "RNN",  # Options: "RNN", "GRU", "LSTM"
         fixed_sign: bool = True,
+        eplhb_fixed_sign: bool = False,
     ) -> None:
         super().__init__(
             observation_space,
@@ -504,6 +523,7 @@ class DQNPolicy(BasePolicy):
         self.with_EPLHb_layer = with_EPLHb_layer
         self.rnn_type = rnn_type
         self.fixed_sign = fixed_sign
+        self.eplhb_fixed_sign = eplhb_fixed_sign
 
         self.net_args = {
             "observation_space": self.observation_space,
@@ -513,6 +533,7 @@ class DQNPolicy(BasePolicy):
             "normalize_images": normalize_images,
             "rnn_type": self.rnn_type,
             "fixed_sign": fixed_sign,
+            "eplhb_fixed_sign": eplhb_fixed_sign
         }
 
         # Extract initial_eplhb_coeff from features_extractor_kwargs if provided
