@@ -32,7 +32,7 @@ seed = 12242
 experiment_params = {
     "kd_values":        [0],   # sweep over kd (add values as needed)
     "omission_probs":   [0],   # sweep over omission probability
-    "repeats":          1,     # repeats per combination
+    "repeats":          10,     # repeats per combination
     "max_batch_sizes":  [1],   # grid values for max_batch_size
     "num_recents":      [1],   # grid values for num_recent
     "eplhb_fixed_sign":       [True, False]
@@ -44,7 +44,7 @@ experiment_params = {
 # ============================================================================
 operant_session_params = {
     "pairing":          'reward',
-    "num_trials":       20,
+    "num_trials":       200,
     "pre_steps":        10,           # 1 s @ 100 ms
     "post_steps":       40,           # 5 s @ 100 ms
     "enl_duration":     (2.0, 4.0),   # seconds
