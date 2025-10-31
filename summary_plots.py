@@ -5,7 +5,8 @@ from datetime import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-from plotfunctions import load_recorder_data, plotSEM, plotScatterBar, plotLine
+from plotfunctions import load_recorder_data, plotSEM, plotScatterBar, plotLine, model_name, short_label
+
 
 repo_path = os.path.abspath("./PID-Accelerated-TD-Learning")
 if repo_path not in sys.path:
@@ -94,7 +95,7 @@ def extract_batch_data(batches):
             all_rewards.extend(reward_history)
             td_amplitudes.append(np.array(trial_TD_amplitude))
             ant_licks.append(np.array(trial_anticipatory_licks))
-            reward_arr = np.array(reward_history)[session_params['change_start']:]
+            reward_arr = np.array(reward_history)#[session_params['change_start']:] only for task switching
             count = np.sum(reward_arr > 2)
             success_per_session.append(count)
             cue_error = np.array(cue_error)  # shape: (num_trials, time_steps)
@@ -220,6 +221,7 @@ def load_batches(root_dir,
     return all_rewards, all_td, success_trials, cue_errors, t_axis, ant_licks, stuck_counts, all_batch_extras
 
 
+
 def plot_pid_results(root_dir="PID-results", 
                     filter_kd=None, 
                     filter_omit=None, 
@@ -284,7 +286,7 @@ def plot_pid_results(root_dir="PID-results",
 
     # Rewards
     print("Plotting reward distributions...")
-    labels = [f"kd={k},omit={o},max_b={m},num_r={n}, fixed_sign={f}, eplhb_fixed_sign={e}" for (k, o, m, n, f, e) in all_rewards]
+    labels = [short_label(k, o, m, n, f, e) for (k, o, m, n, f, e) in all_rewards]
     plotScatterBar(all_rewards.values(),labels=labels, colors=colors, style='box', ax=ax1)
     ax1.set_ylabel("Reward")
     ax1.set_title("Combined Reward Distribution")
@@ -322,7 +324,7 @@ def plot_pid_results(root_dir="PID-results",
         sem = np.std(ant_licks_sessions_array, axis=0) / np.sqrt(ant_licks_sessions_array.shape[0])
 
         x = np.arange(1, avg.shape[0] + 1)
-        ax4.plot(x, avg, label=f"kd={kd}, omit={omit}, max_b={max_b}, num_r={num_r}, fixed_sign={fixed_sign}, eplhb_fixed_sign={eplhb_fixed_sign}")
+        ax4.plot(x, avg, label=f"kd={kd}, omit={omit}, max_b={max_b}, num_r={num_r}, model={model_name(fixed_sign, eplhb_fixed_sign)}")
         ax4.fill_between(x, avg - sem, avg + sem, alpha=0.3)  # standard error band
 
     ax4.set_ylabel("Anticipatory Licks (avg)")
@@ -335,11 +337,10 @@ def plot_pid_results(root_dir="PID-results",
     combos = list(stuck_counts.keys())
     means = [np.mean(stuck_counts[c]) for c in combos]
     sems  = [np.std(stuck_counts[c], ddof=1) / np.sqrt(len(stuck_counts[c])) for c in combos]
-    labels_stuck = [f"kd={kd},omit={omit},max_b={m},num_r={n},dale's={f}, eplhb_fix={e}" for (kd, omit, m, n, f, e) in combos]
-    ax5.bar(labels_stuck, means, yerr=sems, capsize=5, color='skyblue')
+    ax5.bar(labels, means, yerr=sems, capsize=5, color='skyblue')
     ax5.set_ylabel("Stuck Counts (mean ± SEM)")
     ax5.set_title("Average Stuck Counts Per Repeat")
-    ax5.set_xticklabels(labels_stuck, rotation=30, ha='right', fontsize=8)
+    ax5.set_xticklabels(labels, rotation=30, ha='right', fontsize=4.5)
     
     
     # # Success/performance by omission level

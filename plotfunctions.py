@@ -4,9 +4,23 @@ from matplotlib.gridspec import GridSpec
 import pickle
 from matplotlib import cm
 import matplotlib.colors as mcolors
+import random
 
+def model_name(fixed_sign: bool, eplhb_fixed_sign: bool) -> str:
+    """Return short model string for label."""
+    if fixed_sign and eplhb_fixed_sign:
+        return "Dale's"
+    if fixed_sign and not eplhb_fixed_sign:
+        return "EPLHb"
+    return "ANN"
 
-def plot_weight_changes(initial_weights, final_weights, seed, name, save=False):
+def short_label(k, o, m, n, f, e):
+    """Shorter label keeping main params + short model name."""
+    # return f"kd={k},omit={o},max_b={m},num_r={n}, model={model_name(f,e)}"
+    return f"kd={k},omit={o}, model={model_name(f,e)}"
+
+def plot_weight_changes(initial_weights, final_weights, seed, title, fixed_sign, eplhb_fixed_sign, save=False):
+    model_type = model_name(fixed_sign, eplhb_fixed_sign)
     layer_names = list(initial_weights.keys())
     num_layers = len(layer_names)
 
@@ -37,7 +51,7 @@ def plot_weight_changes(initial_weights, final_weights, seed, name, save=False):
 
     plt.tight_layout()
     if save:
-        plt.savefig(f"{name}_weight_changes_{seed}.png")
+        plt.savefig(f"{title}_weight_changes_{model_type}_{seed}_.png")
         plt.close()
     else:
         plt.show()

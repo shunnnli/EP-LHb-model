@@ -447,8 +447,10 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer=No
     print(f"Operant environment training complete! Trained for {num_trials} trials.")
     pbar.close()
 
-    plot_weight_changes(initial_weights_q_net, final_weights_q_net, pid_params["seed"], "q_net", save=True)
-    plot_weight_changes(initial_weights_q_net_target, final_weights_q_net_target, pid_params["seed"], "q_net_target", save=True)
+    plot_weight_changes(initial_weights_q_net, final_weights_q_net, pid_params["seed"], "q_net", 
+                            pid_params["fixed_sign"], pid_params["eplhb_fixed_sign"], save=True)
+    plot_weight_changes(initial_weights_q_net_target, final_weights_q_net_target, pid_params["seed"], "q_net_target", 
+                            pid_params["fixed_sign"], pid_params["eplhb_fixed_sign"], save=True)
 
     return recorder, retrain, False
 

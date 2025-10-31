@@ -18,6 +18,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import random
+import time
 
 from OperantGym import OperantLearning
 from plotfunctions import plot_figure
@@ -25,18 +26,19 @@ from summary_plots import plot_pid_results
 from recorder import SessionRecorder
 from trainfuntions import set_global_seeds, setup_model, setup_buffer, train_operant_environment, train_gym_environment, transfer_weights
 
-seed = 12242
+seed = int(time.time())
 # ----------------------------
 # Experiment sweep parameters
 # ----------------------------
 experiment_params = {
     "kd_values":        [0],   # sweep over kd (add values as needed)
     "omission_probs":   [0],   # sweep over omission probability
-    "repeats":          3,     # repeats per combination
+    "repeats":          10,     # repeats per combination
     "max_batch_sizes":  [1],   # grid values for max_batch_size
     "num_recents":      [1],   # grid values for num_recent
-    "fixed_sign":       [True, True],
-    "eplhb_fixed_sign": [True, False],
+    # compare dale's sign fixed vs. eplhb sign fixed vs. ANN
+    "fixed_sign":       [True, True, False],
+    "eplhb_fixed_sign": [True, False, False],
 }
 
 
@@ -45,7 +47,7 @@ experiment_params = {
 # ============================================================================
 operant_session_params = {
     "pairing":          'reward',
-    "num_trials":       10,
+    "num_trials":       200,
     "pre_steps":        10,           # 1 s @ 100 ms
     "post_steps":       40,           # 5 s @ 100 ms
     "enl_duration":     (2.0, 4.0),   # seconds
