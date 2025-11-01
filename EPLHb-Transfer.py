@@ -31,9 +31,9 @@ seed = int(time.time())
 # Experiment sweep parameters
 # ----------------------------
 experiment_params = {
-    "kd_values":        [0],   # sweep over kd (add values as needed)
+    "kd_values":        [0, 0.1, 0.2, 0.3, 0.4, 0.5],   # sweep over kd (add values as needed)
     "omission_probs":   [0],   # sweep over omission probability
-    "repeats":          10,     # repeats per combination
+    "repeats":          15,     # repeats per combination
     "max_batch_sizes":  [1],   # grid values for max_batch_size
     "num_recents":      [1],   # grid values for num_recent
     # compare dale's sign fixed vs. eplhb sign fixed vs. ANN
