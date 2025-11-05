@@ -4,9 +4,10 @@ from matplotlib.gridspec import GridSpec
 import pickle
 from matplotlib import cm
 import matplotlib.colors as mcolors
+import os
 
 
-def plot_weight_changes(initial_weights, final_weights, seed, name, save=False):
+def plot_weight_changes(initial_weights, final_weights, seed, name, save=False, save_path=None):
     layer_names = list(initial_weights.keys())
     num_layers = len(layer_names)
 
@@ -17,13 +18,13 @@ def plot_weight_changes(initial_weights, final_weights, seed, name, save=False):
     fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 5 * nrows))
     axes = axes.flatten()  # flatten for easy indexing
 
-    for i, name in enumerate(layer_names):
-        w_init = initial_weights[name].flatten()
-        w_final = final_weights[name].flatten()
+    for i, layer_name in enumerate(layer_names):
+        w_init = initial_weights[layer_name].flatten()
+        w_final = final_weights[layer_name].flatten()
 
         ax = axes[i]
         ax.scatter(w_init, w_final, s=2, alpha=0.4)
-        ax.set_title(f'Weight change: {name}')
+        ax.set_title(f'Weight change: {layer_name}')
         ax.set_xlabel('Initial weight')
         ax.set_ylabel('Final weight')
         
@@ -37,7 +38,12 @@ def plot_weight_changes(initial_weights, final_weights, seed, name, save=False):
 
     plt.tight_layout()
     if save:
-        plt.savefig(f"{name}_weight_changes_{seed}.png")
+        if save_path is not None:
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(save_path) if os.path.dirname(save_path) else '.', exist_ok=True)
+            plt.savefig(save_path)
+        else:
+            plt.savefig(f"{name}_weight_changes_{seed}.png")
         plt.close()
     else:
         plt.show()

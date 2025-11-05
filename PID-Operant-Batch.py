@@ -110,7 +110,7 @@ def set_global_seeds(seed: int):
     base_pid_params["seed"] = seed
     pp["seed"] = seed
 
-def train_once(session_params, pid_params):
+def train_once(session_params, pid_params, save_dir=None):
     # --- Build env, model, recorder ---
     env = OperantLearning(
         pairing=session_params["pairing"],
@@ -342,8 +342,17 @@ def train_once(session_params, pid_params):
         if 'weight' in name
     }
 
-    plot_weight_changes(initial_weights_q_net, final_weights_q_net, pid_params["seed"], "q_net", save=True)
-    plot_weight_changes(initial_weights_q_net_target, final_weights_q_net_target, pid_params["seed"], "q_net_target", save=True)
+    # Save weight changes plots to subfolder if save_dir is provided
+    if save_dir is not None:
+        weight_changes_dir = os.path.join(save_dir, "weight_changes")
+        os.makedirs(weight_changes_dir, exist_ok=True)
+        plot_weight_changes(initial_weights_q_net, final_weights_q_net, pid_params["seed"], "q_net", 
+                          save=True, save_path=os.path.join(weight_changes_dir, f"q_net_weight_changes_{pid_params['seed']}.png"))
+        plot_weight_changes(initial_weights_q_net_target, final_weights_q_net_target, pid_params["seed"], "q_net_target", 
+                          save=True, save_path=os.path.join(weight_changes_dir, f"q_net_target_weight_changes_{pid_params['seed']}.png"))
+    else:
+        plot_weight_changes(initial_weights_q_net, final_weights_q_net, pid_params["seed"], "q_net", save=True)
+        plot_weight_changes(initial_weights_q_net_target, final_weights_q_net_target, pid_params["seed"], "q_net_target", save=True)
 
     return recorder, retrain, False
     
@@ -406,7 +415,7 @@ if __name__ == "__main__":
                     print(f"Training with kd={kd}, omit={omit}, "
                           f"max_batch={max_b}, num_recent={num_r}, "
                           f"(repeat {r + 1}/{repeats})")
-                    rec, retrain, got_stuck = train_once(sp, pp)
+                    rec, retrain, got_stuck = train_once(sp, pp, save_dir=save_dir)
                     if got_stuck:
                         stuck_counts += 1
 

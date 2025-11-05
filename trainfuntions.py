@@ -199,7 +199,8 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer=No
                               pairing_change=False,
                               difficulty_change="increase",
                               print_status=True,
-                              seq_len=10):
+                              seq_len=10,
+                              save_dir=None):
     """Train on operant environment (matching PID-Operant-Batch.py structure)"""
 
     print(f"Training on operant environment")
@@ -447,8 +448,17 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer=No
     print(f"Operant environment training complete! Trained for {num_trials} trials.")
     pbar.close()
 
-    plot_weight_changes(initial_weights_q_net, final_weights_q_net, pid_params["seed"], "q_net", save=True)
-    plot_weight_changes(initial_weights_q_net_target, final_weights_q_net_target, pid_params["seed"], "q_net_target", save=True)
+    # Save weight changes plots to subfolder if save_dir is provided
+    if save_dir is not None:
+        weight_changes_dir = os.path.join(save_dir, "weight_changes")
+        os.makedirs(weight_changes_dir, exist_ok=True)
+        plot_weight_changes(initial_weights_q_net, final_weights_q_net, pid_params["seed"], "q_net", 
+                          save=True, save_path=os.path.join(weight_changes_dir, f"q_net_weight_changes_{pid_params['seed']}.png"))
+        plot_weight_changes(initial_weights_q_net_target, final_weights_q_net_target, pid_params["seed"], "q_net_target", 
+                          save=True, save_path=os.path.join(weight_changes_dir, f"q_net_target_weight_changes_{pid_params['seed']}.png"))
+    else:
+        plot_weight_changes(initial_weights_q_net, final_weights_q_net, pid_params["seed"], "q_net", save=True)
+        plot_weight_changes(initial_weights_q_net_target, final_weights_q_net_target, pid_params["seed"], "q_net_target", save=True)
 
     return recorder, retrain, False
 

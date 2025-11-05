@@ -338,9 +338,9 @@ class EPLHbNetwork(QNetwork):
 
 
         # --- NEW: EPLHb MLP ---
-        # input is [rnn_hidden + Q-MLP pre-output], map to a scalar
+        # input is [final layer of postRNN MLP], map to a scalar
         self.eplhb = nn.Sequential(
-            nn.Linear(rnn_hidden_size + 1, self.eplhb_hidden_dim),
+            nn.Linear(self.post_rnn[-1].out_features, self.eplhb_hidden_dim),
             nn.ReLU(),
             nn.Linear(self.eplhb_hidden_dim, 1)  # Proper output layer instead of MeanLayer
         )
@@ -358,7 +358,7 @@ class EPLHbNetwork(QNetwork):
         self.input_norm = nn.LayerNorm(int(rnn_input_size))
         
         # Add separate normalization layer for EPLHb input
-        self.eplhb_input_norm = nn.LayerNorm(int(rnn_hidden_size + 1))
+        self.eplhb_input_norm = nn.LayerNorm(int(self.action_space.n))
 
         # placeholder for hidden state; will be (num_layers, batch, hidden_size)
         self._h = None
@@ -442,13 +442,8 @@ class EPLHbNetwork(QNetwork):
         q_out = self.post_rnn(out)       # (batch, num_actions)
         chosen_action = q_out.argmax(dim=1, keepdim=True)  # (batch, 1)
 
-        # 7) concat last embed and the chosen action to feed to eplhb
-        concat = th.cat([last_embed, chosen_action], dim=-1)
-        # Normalize input to prevent scale issues
-        concat_norm = self.eplhb_input_norm(concat)
-        eplhb_out = self.eplhb(concat_norm).squeeze(-1)
-        # Clamp output to prevent extreme values
-        # eplhb_out = th.clamp(eplhb_out, min=-10.0, max=10.0)
+        # 7) concat Q values of all actions to feed to eplhb
+        eplhb_out = self.eplhb(self.eplhb_input_norm(q_out)).squeeze(-1)
 
         return q_out, h_n, eplhb_out
 
