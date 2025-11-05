@@ -8,6 +8,7 @@ import torch as th
 from gymnasium.wrappers import RecordVideo
 from gymnasium import spaces
 from torch.nn import functional as F
+from torch import nn
 
 from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.off_policy_algorithm import OffPolicyAlgorithm
@@ -108,7 +109,9 @@ class EPLHb_DQN(OffPolicyAlgorithm):
         dump_buffer: bool = False,
         is_double=False,
         optimal_model=None,
-        policy_evaluation=False
+        policy_evaluation=False,
+        use_stdp: bool = False,
+        stdp_decay: float = 1e-5,
     ) -> None:
         
         if policy_kwargs is None:
@@ -174,6 +177,15 @@ class EPLHb_DQN(OffPolicyAlgorithm):
         self.previous_i_update, self.i_update = None, None
         self.previous_d_update, self.d_update = None, None
         self.kp, self.ki, self.kd = None, None, None
+        
+        # STDP training parameters
+        self.use_stdp = use_stdp
+        self.stdp_decay = stdp_decay
+        # Extract eplhb_lr from optimizer_kwargs if available
+        if optimizer_kwargs is not None:
+            self.eplhb_lr = optimizer_kwargs.get('eplhb_lr', learning_rate if isinstance(learning_rate, float) else learning_rate(1))
+        else:
+            self.eplhb_lr = learning_rate if isinstance(learning_rate, float) else learning_rate(1)
 
         self.policy.jump_start_cuda()
 
@@ -404,6 +416,179 @@ class EPLHb_DQN(OffPolicyAlgorithm):
                     # Update the main network learning rate
                     param_group["lr"] = new_lr
 
+    def _capture_activations(self, net, obs_seq, act_seq):
+        """
+        Capture pre-synaptic and post-synaptic activations for STDP updates.
+        Returns a dictionary mapping layer names to (pre_activation, post_activation) tuples.
+        """
+        activations = {}
+        
+        # Extract features
+        features = net.extract_features(obs_seq, net.features_extractor)
+        activations['features'] = (None, features.detach())
+        
+        # Input projection
+        rnn_in = net.input_projection(features)
+        activations['input_projection'] = (features.detach(), rnn_in.detach())
+        
+        # Input norm
+        rnn_in_norm = net.input_norm(rnn_in)
+        activations['input_norm'] = (rnn_in.detach(), rnn_in_norm.detach())
+        
+        # RNN - need to handle hidden state
+        rnn_in_seq = rnn_in_norm.unsqueeze(1)  # [B, 1, rnn_input_size]
+        if net._h is None or net._h.size(1) != obs_seq.size(0):
+            net.reset_hidden(batch_size=obs_seq.size(0), device=obs_seq.device)
+        
+        rnn_out, h_n = net.rnn(rnn_in_seq, net._h)
+        net._h = h_n.detach()
+        rnn_out_squeezed = rnn_out.squeeze(1)  # [B, rnn_hidden_size]
+        activations['rnn'] = (rnn_in_norm.detach(), rnn_out_squeezed.detach())
+        
+        # Post-RNN MLP layers
+        x = rnn_out_squeezed
+        for i, layer in enumerate(net.post_rnn):
+            if isinstance(layer, nn.Linear):
+                pre_act = x.detach()
+                x = layer(x)
+                activations[f'post_rnn_{i}'] = (pre_act, x.detach())
+            elif isinstance(layer, nn.ReLU) or isinstance(layer, nn.Tanh) or isinstance(layer, nn.Sigmoid):
+                x = layer(x)
+                # Activation functions don't have weights, but we track activations
+            else:
+                x = layer(x)
+        
+        # EPLHb layers
+        if hasattr(net, 'eplhb'):
+            q_out = x.detach()
+            eplhb_in = net.eplhb_input_norm(q_out)
+            x_eplhb = eplhb_in
+            for i, layer in enumerate(net.eplhb):
+                if isinstance(layer, nn.Linear):
+                    pre_act = x_eplhb.detach()
+                    x_eplhb = layer(x_eplhb)
+                    activations[f'eplhb_{i}'] = (pre_act, x_eplhb.detach())
+                elif isinstance(layer, nn.ReLU) or isinstance(layer, nn.Tanh) or isinstance(layer, nn.Sigmoid):
+                    x_eplhb = layer(x_eplhb)
+                else:
+                    x_eplhb = layer(x_eplhb)
+        
+        return activations
+
+    def _apply_stdp_updates(self, net, activations, reward_signal):
+        """
+        Apply reward-modulated STDP updates to all network weights.
+        
+        STDP rule: Δw = η * reward_signal * (pre * post - decay * w)
+        where pre is pre-synaptic activity, post is post-synaptic activity
+        Uses learning_rate for main network, eplhb_lr for EPLHb layers
+        """
+        with th.no_grad():
+            # Get current learning rate (handle Schedule objects)
+            if isinstance(self.learning_rate, (float, int)):
+                main_lr = self.learning_rate
+            else:
+                main_lr = self.learning_rate(self._current_progress_remaining)
+            
+            # Average reward signal across batch
+            reward_magnitude = reward_signal.item() if isinstance(reward_signal, th.Tensor) else reward_signal
+            reward_magnitude = abs(reward_magnitude)  # Use absolute value for magnitude
+            
+            # Update input projection
+            if 'input_projection' in activations:
+                pre, post = activations['input_projection']
+                if pre is not None and hasattr(net, 'input_projection'):
+                    # Compute update: pre (B, feat_dim) @ post (B, rnn_input_size)
+                    # For linear layer: pre @ W = post, so W update should consider pre and post
+                    pre_mean = pre.mean(dim=0, keepdim=True)  # [1, feat_dim]
+                    post_mean = post.mean(dim=0, keepdim=True)  # [1, rnn_input_size]
+                    update = pre_mean.t() @ post_mean  # [feat_dim, rnn_input_size]
+                    net.input_projection.weight.data += (
+                        main_lr * reward_magnitude * update
+                        - self.stdp_decay * net.input_projection.weight.data
+                    )
+                    if net.input_projection.bias is not None:
+                        net.input_projection.bias.data += (
+                            main_lr * reward_magnitude * post_mean.squeeze()
+                            - self.stdp_decay * net.input_projection.bias.data
+                        )
+            
+            # Update RNN weights
+            if 'rnn' in activations and hasattr(net, 'rnn'):
+                pre, post = activations['rnn']
+                if pre is not None:
+                    pre_mean = pre.mean(dim=0, keepdim=True)  # [1, rnn_input_size]
+                    post_mean = post.mean(dim=0, keepdim=True)  # [1, rnn_hidden_size]
+                    
+                    # Update input-to-hidden weights
+                    if hasattr(net.rnn, 'weight_ih_l0'):
+                        update_ih = pre_mean.t() @ post_mean  # [rnn_input_size, rnn_hidden_size]
+                        net.rnn.weight_ih_l0.data += (
+                            main_lr * reward_magnitude * update_ih
+                            - self.stdp_decay * net.rnn.weight_ih_l0.data
+                        )
+                    
+                    # Update hidden-to-hidden weights (use previous hidden state)
+                    if hasattr(net.rnn, 'weight_hh_l0') and net._h is not None:
+                        h_prev = net._h[0].mean(dim=0, keepdim=True)  # [1, rnn_hidden_size]
+                        update_hh = h_prev.t() @ post_mean  # [rnn_hidden_size, rnn_hidden_size]
+                        net.rnn.weight_hh_l0.data += (
+                            main_lr * reward_magnitude * update_hh
+                            - self.stdp_decay * net.rnn.weight_hh_l0.data
+                        )
+                    
+                    # Update biases
+                    if hasattr(net.rnn, 'bias_ih_l0') and net.rnn.bias_ih_l0 is not None:
+                        net.rnn.bias_ih_l0.data += (
+                            main_lr * reward_magnitude * post_mean.squeeze()
+                            - self.stdp_decay * net.rnn.bias_ih_l0.data
+                        )
+            
+            # Update post-RNN MLP layers
+            for i, layer in enumerate(net.post_rnn):
+                if isinstance(layer, nn.Linear):
+                    key = f'post_rnn_{i}'
+                    if key in activations:
+                        pre, post = activations[key]
+                        if pre is not None:
+                            pre_mean = pre.mean(dim=0, keepdim=True)  # [1, in_features]
+                            post_mean = post.mean(dim=0, keepdim=True)  # [1, out_features]
+                            update = pre_mean.t() @ post_mean  # [in_features, out_features]
+                            layer.weight.data += (
+                                main_lr * reward_magnitude * update
+                                - self.stdp_decay * layer.weight.data
+                            )
+                            if layer.bias is not None:
+                                layer.bias.data += (
+                                    main_lr * reward_magnitude * post_mean.squeeze()
+                                    - self.stdp_decay * layer.bias.data
+                                )
+            
+            # Update EPLHb layers (use eplhb_lr)
+            if hasattr(net, 'eplhb'):
+                for i, layer in enumerate(net.eplhb):
+                    if isinstance(layer, nn.Linear):
+                        key = f'eplhb_{i}'
+                        if key in activations:
+                            pre, post = activations[key]
+                            if pre is not None:
+                                pre_mean = pre.mean(dim=0, keepdim=True)  # [1, in_features]
+                                post_mean = post.mean(dim=0, keepdim=True)  # [1, out_features]
+                                update = pre_mean.t() @ post_mean  # [in_features, out_features]
+                                layer.weight.data += (
+                                    self.eplhb_lr * reward_magnitude * update
+                                    - self.stdp_decay * layer.weight.data
+                                )
+                                if layer.bias is not None:
+                                    layer.bias.data += (
+                                        self.eplhb_lr * reward_magnitude * post_mean.squeeze()
+                                        - self.stdp_decay * layer.bias.data
+                                    )
+            
+            # Apply sign constraints if needed
+            if self.policy_kwargs.get("fixed_sign", False):
+                net.enforce_signs()
+
     def _train_recurrent(self, gradient_steps: int, batch_size: int = None, seq_len: int = None, batch_idxs: List[int] = None):
         losses = []
         net    = self.policy.q_net
@@ -539,43 +724,104 @@ class EPLHb_DQN(OffPolicyAlgorithm):
                 + l2_penalty
             )
 
-            # Optimize both networks together (same as in regular train method)
-            optim.zero_grad()
-            
-            # Compute gradients for main network (excluding EPLHb parameters)
-            final_loss.backward(retain_graph=True)
-            
-            # Compute gradients for EPLHb network only
-            if hasattr(self.policy.q_net, 'eplhb'):
-                # Get EPLHb parameters
-                eplhb_params = list(self.policy.q_net.eplhb.parameters())
-                if hasattr(self.policy.q_net, 'eplhb_coeff_raw'):
-                    eplhb_params.append(self.policy.q_net.eplhb_coeff_raw)
+            if self.use_stdp:
+                # STDP-based training: use reward-modulated plasticity
+                # Reset hidden state for activation capture
+                net.reset_hidden(batch_size=B, device=self.device)
                 
-                # Compute gradients only for EPLHb parameters
-                eplhb_grads = th.autograd.grad(
-                    d_update_loss, eplhb_params, retain_graph=True, create_graph=False, allow_unused=True
-                )
+                # Capture activations for the entire sequence
+                # Average across sequence length for reward signal
+                # Use mean TD error as reward signal (inverted, so lower error = higher reward)
+                td_error_magnitude = td_error_seq.abs().mean()
+                reward_signal = -td_error_magnitude  # Negative TD error as reward signal
                 
-                # Manually set gradients for EPLHb parameters
-                for param, grad in zip(eplhb_params, eplhb_grads):
-                    if grad is not None:  # Only update if gradient was computed
-                        if param.grad is not None:
-                            param.grad += grad
+                # Capture activations for each timestep and accumulate updates
+                all_activations = []
+                for t in range(L):
+                    # Forward pass to capture activations
+                    obs_t = obs_seq[:, t, :]
+                    act_t = act_seq[:, t].unsqueeze(1)
+                    
+                    # Capture activations
+                    activations = self._capture_activations(net, obs_t, act_t)
+                    all_activations.append(activations)
+                
+                # Apply STDP updates using average activations across sequence
+                # Use mean TD error as reward signal (inverted, so lower error = higher reward)
+                # td_error_magnitude = td_error_seq.abs().mean()
+                # reward_signal = -td_error_magnitude  # Negative TD error as reward signal
+                
+                # Average activations across timesteps
+                avg_activations = {}
+                if len(all_activations) > 0:
+                    for key in all_activations[0].keys():
+                        pre_list = [act[key][0] for act in all_activations if act[key][0] is not None]
+                        post_list = [act[key][1] for act in all_activations if act[key][1] is not None]
+                        
+                        if len(pre_list) > 0:
+                            avg_pre = th.stack(pre_list).mean(dim=0)
                         else:
-                            param.grad = grad
+                            avg_pre = None
+                        
+                        if len(post_list) > 0:
+                            avg_post = th.stack(post_list).mean(dim=0)
+                        else:
+                            avg_post = None
+                        
+                        avg_activations[key] = (avg_pre, avg_post)
                 
-                # Apply gradient clipping to EPLHb parameters
-                th.nn.utils.clip_grad_norm_(eplhb_params, 1.0)
-                if hasattr(self.policy.q_net, 'eplhb_coeff_raw'):
-                    th.nn.utils.clip_grad_norm_([self.policy.q_net.eplhb_coeff_raw], 0.1)
+                # Apply STDP updates
+                if len(avg_activations) > 0:
+                    self._apply_stdp_updates(net, avg_activations, reward_signal)
+                
+                # Also update EPLHb coeff if needed (using simple gradient-like update)
+                if hasattr(net, 'eplhb_coeff_raw'):
+                    # Simple update: increase coeff if EPLHb helps reduce loss
+                    with th.no_grad():
+                        coeff_update = -self.eplhb_lr * d_update_loss.mean()
+                        net.eplhb_coeff_raw.data += coeff_update
+                        # Clip to reasonable range
+                        net.eplhb_coeff_raw.data.clamp_(-10.0, 10.0)
+                
+            else:
+                # Standard backpropagation training
+                optim.zero_grad()
+                
+                # Compute gradients for main network (excluding EPLHb parameters)
+                final_loss.backward(retain_graph=True)
+                
+                # Compute gradients for EPLHb network only
+                if hasattr(self.policy.q_net, 'eplhb'):
+                    # Get EPLHb parameters
+                    eplhb_params = list(self.policy.q_net.eplhb.parameters())
+                    if hasattr(self.policy.q_net, 'eplhb_coeff_raw'):
+                        eplhb_params.append(self.policy.q_net.eplhb_coeff_raw)
+                    
+                    # Compute gradients only for EPLHb parameters
+                    eplhb_grads = th.autograd.grad(
+                        d_update_loss, eplhb_params, retain_graph=True, create_graph=False, allow_unused=True
+                    )
+                    
+                    # Manually set gradients for EPLHb parameters
+                    for param, grad in zip(eplhb_params, eplhb_grads):
+                        if grad is not None:  # Only update if gradient was computed
+                            if param.grad is not None:
+                                param.grad += grad
+                            else:
+                                param.grad = grad
+                    
+                    # Apply gradient clipping to EPLHb parameters
+                    th.nn.utils.clip_grad_norm_(eplhb_params, 1.0)
+                    if hasattr(self.policy.q_net, 'eplhb_coeff_raw'):
+                        th.nn.utils.clip_grad_norm_([self.policy.q_net.eplhb_coeff_raw], 0.1)
 
-            # Apply gradient clipping to all parameters
-            th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
-            
-            # Update all parameters with the optimizer
-            optim.step()
-            if self.policy_kwargs["fixed_sign"]:
+                # Apply gradient clipping to all parameters
+                th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
+                
+                # Update all parameters with the optimizer
+                optim.step()
+                
+            if self.policy_kwargs.get("fixed_sign", False):
                 self.policy.q_net.enforce_signs()
                 self.policy.q_net_target.enforce_signs()
 

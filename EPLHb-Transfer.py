@@ -31,7 +31,7 @@ from trainfuntions import set_global_seeds, setup_model, setup_buffer, train_ope
 # ----------------------------
 experiment_params = {
     "kd_values":        [0],   # sweep over kd (add values as needed)
-    "omission_probs":   [0.3],   # sweep over omission probability
+    "omission_probs":   [0],   # sweep over omission probability
     "repeats":          10,     # repeats per combination
     "max_batch_sizes":  [1],   # grid values for max_batch_size
     "num_recents":      [1],   # grid values for num_recent
@@ -100,6 +100,8 @@ operant_pid_params = {
     "tabular_d": False,
     "fixed_sign": True,
     "eplhb_fixed_sign": False,
+    "use_stdp": False,  # Toggle for STDP training: False = backprop, True = STDP
+    "stdp_decay": 1e-5,  # Weight decay for STDP updates
 }
 
 # ============================================================================
@@ -150,6 +152,8 @@ gym_pid_params = {
     "beta": 0.95,
     "d_tau": 1,
     "tabular_d": False,
+    "use_stdp": True,  # Toggle for STDP training: False = backprop, True = STDP
+    "stdp_decay": 1e-5,  # Weight decay for STDP updates
 }
 
 # ============================================================================
@@ -404,7 +408,7 @@ if __name__ == "__main__":
     eplhb_fixed_sign = experiment_params["eplhb_fixed_sign"]
 
     # Save results settings
-    batch_name = 'kd_omission_sweep'
+    batch_name = 'kd_omission_sweep_stdp'
     script_dir = os.path.dirname(os.path.abspath(__file__))
     results_root = os.path.join(script_dir, "PID-results-ext_buffer")
 

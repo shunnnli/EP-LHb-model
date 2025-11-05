@@ -97,6 +97,11 @@ def setup_model(env, pid_params, device="cpu", model_type="EPLHb"):
         policy_evaluation=pid_params["policy_evaluation"],
         replay_buffer_class=ExtendedReplayBuffer,
     )
+    
+    # Add STDP parameters if provided
+    if "use_stdp" in pid_params:
+        common_kwargs["use_stdp"] = pid_params["use_stdp"]
+        common_kwargs["stdp_decay"] = pid_params.get("stdp_decay", 1e-5)
 
     if model_type.upper() == "EPLHB":
         model = EPLHb_DQN(**common_kwargs, optimizer_kwargs=optimizer_kwargs)
