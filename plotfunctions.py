@@ -52,10 +52,8 @@ def plot_weight_changes(initial_weights, final_weights, seed, title, fixed_sign,
     plt.tight_layout()
     if save:
         plt.savefig(f"{title}_weight_changes_{model_type}_{seed}_.png")
-        plt.close()
-    else:
-        plt.show()
-        plt.close()
+
+    plt.close()
 
 def plotSEM(x, y, omissions=None, label=None, color=None, ax=None, alpha=0.2, fill=False):
     """Plot with shaded error margin and red for omissions."""

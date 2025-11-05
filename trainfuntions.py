@@ -448,9 +448,9 @@ def train_operant_environment(model, env, env_params, pid_params, orig_buffer=No
     pbar.close()
 
     plot_weight_changes(initial_weights_q_net, final_weights_q_net, pid_params["seed"], "q_net", 
-                            pid_params["fixed_sign"], pid_params["eplhb_fixed_sign"], save=True)
+                            pid_params["fixed_sign"], pid_params["eplhb_fixed_sign"], save=False)
     plot_weight_changes(initial_weights_q_net_target, final_weights_q_net_target, pid_params["seed"], "q_net_target", 
-                            pid_params["fixed_sign"], pid_params["eplhb_fixed_sign"], save=True)
+                            pid_params["fixed_sign"], pid_params["eplhb_fixed_sign"], save=False)
 
     return recorder, retrain, False
 

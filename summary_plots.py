@@ -95,7 +95,7 @@ def extract_batch_data(batches):
             all_rewards.extend(reward_history)
             td_amplitudes.append(np.array(trial_TD_amplitude))
             ant_licks.append(np.array(trial_anticipatory_licks))
-            reward_arr = np.array(reward_history)#[session_params['change_start']:] only for task switching
+            reward_arr = np.array(reward_history)# [session_params[150:]] # only for task switching
             count = np.sum(reward_arr > 2)
             success_per_session.append(count)
             cue_error = np.array(cue_error)  # shape: (num_trials, time_steps)
@@ -236,15 +236,18 @@ def plot_pid_results(root_dir="PID-results",
         root_dir, filter_kd, filter_omit, filter_max_b, filter_num_r, filter_fixed_sign, filter_eplhb_fixed_sign, filter_repeat,)
     
     # ------- plot results -------
-    fig = plt.figure(figsize=(26, 8))  # make figure a bit wider
-    gs = gridspec.GridSpec(2, 3, figure=fig)
+    fig = plt.figure(figsize=(28, 10))
+    gs = gridspec.GridSpec(2, 4, figure=fig, height_ratios=[1, 1.2], wspace=0.4, hspace=0.4)
 
+    # Top row 
     ax1 = fig.add_subplot(gs[0, 0])
     ax2 = fig.add_subplot(gs[0, 1])
-    ax5 = fig.add_subplot(gs[0, 2])
+    ax3 = fig.add_subplot(gs[0, 2])
+    ax5 = fig.add_subplot(gs[0, 3])
 
-    ax3 = fig.add_subplot(gs[1, 0])
-    ax4 = fig.add_subplot(gs[1, 1:3])
+    # Bottom row 
+    ax4 = fig.add_subplot(gs[1, 0:2])
+    ax6 = fig.add_subplot(gs[1, 2:4])
 
 
     # Set up colors and x-axis
@@ -289,7 +292,7 @@ def plot_pid_results(root_dir="PID-results",
     labels = [short_label(k, o, m, n, f, e) for (k, o, m, n, f, e) in all_rewards]
     plotScatterBar(all_rewards.values(),labels=labels, colors=colors, style='box', ax=ax1)
     ax1.set_ylabel("Reward")
-    ax1.set_title("Combined Reward Distribution")
+    ax1.set_title("Combined Reward Distribution", fontsize=9)
 
 
     # TD Amplitudes: last 25% of trials per session
@@ -300,14 +303,14 @@ def plot_pid_results(root_dir="PID-results",
         td_flat_data.append(np.concatenate(trimmed))
     plotScatterBar(td_flat_data, labels=labels, colors=colors, style='box', ax=ax2)
     ax2.set_ylabel("TD Amplitude")
-    ax2.set_title("TD Amplitude (Last 25% of Trials)")
+    ax2.set_title("TD Amplitude (Last 25% of Trials)", fontsize=9)
 
 
     # Success trials
     print("Plotting success trials...")
     plotScatterBar(success_trials.values(),labels=labels, colors=colors, style='bar', ax=ax3)
     ax3.set_ylabel("Success trials")
-    ax3.set_title("Success trials (reward > 2) after change start")
+    ax3.set_title("Success trials (reward > 2) after change start", fontsize=9)
 
     # Anticipatory Licks
     for (kd, omit, max_b, num_r, fixed_sign, eplhb_fixed_sign), ant_licks_sessions in sorted_licks:
@@ -324,13 +327,13 @@ def plot_pid_results(root_dir="PID-results",
         sem = np.std(ant_licks_sessions_array, axis=0) / np.sqrt(ant_licks_sessions_array.shape[0])
 
         x = np.arange(1, avg.shape[0] + 1)
-        ax4.plot(x, avg, label=f"kd={kd}, omit={omit}, max_b={max_b}, num_r={num_r}, model={model_name(fixed_sign, eplhb_fixed_sign)}")
+        ax4.plot(x, avg, label=f"kd={kd}, omit={omit}, model={model_name(fixed_sign, eplhb_fixed_sign)}")
         ax4.fill_between(x, avg - sem, avg + sem, alpha=0.3)  # standard error band
 
     ax4.set_ylabel("Anticipatory Licks (avg)")
     ax4.set_xlabel("Trial Num")
-    ax4.set_title("Anticipatory Licks")
-    ax4.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0), borderaxespad=0, frameon=False)
+    ax4.set_title("Anticipatory Licks", fontsize=9)
+    # ax4.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0), borderaxespad=0, frameon=False)
 
 
     # Stuck Counts
@@ -339,8 +342,36 @@ def plot_pid_results(root_dir="PID-results",
     sems  = [np.std(stuck_counts[c], ddof=1) / np.sqrt(len(stuck_counts[c])) for c in combos]
     ax5.bar(labels, means, yerr=sems, capsize=5, color='skyblue')
     ax5.set_ylabel("Stuck Counts (mean ± SEM)")
-    ax5.set_title("Average Stuck Counts Per Repeat")
+    ax5.set_title("Average Stuck Counts Per Repeat", fontsize=9)
     ax5.set_xticklabels(labels, rotation=30, ha='right', fontsize=4.5)
+
+     # TD Error (Trial-by-trial traces)
+    for (kd, omit, max_b, num_r, fixed_sign, eplhb_fixed_sign), td_sessions in sorted_items:
+        if len(td_sessions) == 0:
+            continue  # skip if no sessions
+        
+        # Ensure consistent length across sessions
+        standard_length = len(td_sessions[0])
+        fixed_sessions = [
+            np.pad(s, (0, standard_length - len(s)), mode='constant') if len(s) < standard_length else s[:standard_length]
+            for s in td_sessions
+        ]
+        td_sessions_array = np.stack(fixed_sessions)
+        avg = np.mean(td_sessions_array, axis=0)
+        sem = np.std(td_sessions_array, axis=0) / np.sqrt(td_sessions_array.shape[0])
+
+        x = np.arange(1, avg.shape[0] + 1)
+        ax6.plot(
+            x,
+            avg,
+            label=f"omit={omit}, model={model_name(fixed_sign, eplhb_fixed_sign)}"
+        )
+        ax6.fill_between(x, avg - sem, avg + sem, alpha=0.3)
+
+    ax6.set_ylabel("TD Error (avg)")
+    ax6.set_xlabel("Trial Num")
+    ax6.set_title("Temporal Difference Error", fontsize=9)
+    ax6.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0), borderaxespad=0, frameon=False, fontsize=6)
     
     
     # # Success/performance by omission level
@@ -363,7 +394,7 @@ def plot_pid_results(root_dir="PID-results",
             mng.full_screen_toggle()
 
     # Save the figure
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0, 0.8, 1])
     fig_path = os.path.join(latest, f"{title}.png")
     fig.savefig(fig_path, dpi=300)
     print(f"Figure saved to: {fig_path}")
