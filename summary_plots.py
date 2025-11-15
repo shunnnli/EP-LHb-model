@@ -248,15 +248,15 @@ def plot_pid_results(root_dir="PID-results",
     
     # ------- plot results -------
     fig = plt.figure(figsize=(26, 8))  # make figure a bit wider
-    gs = gridspec.GridSpec(2, 3, figure=fig)
+    gs = gridspec.GridSpec(2, 4, figure=fig)
 
     ax1 = fig.add_subplot(gs[0, 0])
     ax2 = fig.add_subplot(gs[0, 1])
-    ax5 = fig.add_subplot(gs[0, 2])
-
-    ax3 = fig.add_subplot(gs[1, 0])
-    ax4 = fig.add_subplot(gs[1, 1:3])
-
+    ax3 = fig.add_subplot(gs[0, 2])
+    ax4 = fig.add_subplot(gs[0, 3])
+    
+    ax5 = fig.add_subplot(gs[1, 0:2])
+    ax6 = fig.add_subplot(gs[1, 2:4])
 
     # Set up colors and x-axis
     # --- 1) figure out your ordering (fixed_sign, num_r, max_b, omit, kd) ---
@@ -322,6 +322,19 @@ def plot_pid_results(root_dir="PID-results",
     ax3.set_ylabel("Success trials")
     ax3.set_title("Success trials (reward > 2) after change start")
 
+    # Stuck Counts - Show total counts per network type
+    combos = [key for key, _ in sorted_items]  # Use same ordering as other plots
+    totals = [np.sum(stuck_counts[c]) for c in combos]  # Sum of all repeats per network configuration
+    labels_stuck = [get_network_name(f, efs) for (kd, omit, m, n, f, efs) in combos]
+    
+    print(f"Plotting stuck counts with {len(combos)} network types")
+    print(f"Totals: {totals}")
+    
+    ax4.bar(labels_stuck, totals, color='skyblue')
+    ax4.set_ylabel("Total Stuck Counts")
+    ax4.set_title("Total Stuck Counts Per Network Type")
+    ax4.set_xticklabels(labels_stuck, rotation=45, ha='right')
+
     # Anticipatory Licks
     for (kd, omit, max_b, num_r, fixed_sign, eplhb_fixed_sign), ant_licks_sessions in sorted_licks:
         # Determine standard_length from the first session's length
@@ -338,27 +351,46 @@ def plot_pid_results(root_dir="PID-results",
 
         x = np.arange(1, avg.shape[0] + 1)
         network_name = get_network_name(fixed_sign, eplhb_fixed_sign)
-        ax4.plot(x, avg, label=network_name)
-        ax4.fill_between(x, avg - sem, avg + sem, alpha=0.3)  # standard error band
+        ax5.plot(x, avg, label=network_name)
+        ax5.fill_between(x, avg - sem, avg + sem, alpha=0.3)  # standard error band
 
-    ax4.set_ylabel("Anticipatory Licks (avg)")
-    ax4.set_xlabel("Trial Num")
-    ax4.set_title("Anticipatory Licks")
-    ax4.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0), borderaxespad=0, frameon=False)
+    ax5.set_ylabel("Anticipatory Licks (avg)")
+    ax5.set_xlabel("Trial Num")
+    ax5.set_title("Anticipatory Licks")
+    ax5.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0), borderaxespad=0, frameon=False, fontsize=6)
 
 
-    # Stuck Counts - Show total counts per network type
-    combos = [key for key, _ in sorted_items]  # Use same ordering as other plots
-    totals = [np.sum(stuck_counts[c]) for c in combos]  # Sum of all repeats per network configuration
-    labels_stuck = [get_network_name(f, efs) for (kd, omit, m, n, f, efs) in combos]
     
-    print(f"Plotting stuck counts with {len(combos)} network types")
-    print(f"Totals: {totals}")
+
+    # TD Error (Trial-by-trial traces)
+    print("Plotting TD error (Trial-by-trial traces)...")
+    for (kd, omit, max_b, num_r, fixed_sign, eplhb_fixed_sign), td_sessions in sorted_items:
+        if len(td_sessions) == 0:
+            continue  # skip if no sessions
+        
+        # Ensure consistent length across sessions
+        standard_length = len(td_sessions[0])
+        fixed_sessions = [
+            np.pad(s, (0, standard_length - len(s)), mode='constant') if len(s) < standard_length else s[:standard_length]
+            for s in td_sessions
+        ]
+        td_sessions_array = np.stack(fixed_sessions)
+        avg = np.mean(td_sessions_array, axis=0)
+        sem = np.std(td_sessions_array, axis=0) / np.sqrt(td_sessions_array.shape[0])
+
+        x = np.arange(1, avg.shape[0] + 1)
+        ax6.plot(
+            x,
+            avg,
+            label=f"{get_network_name(fixed_sign, eplhb_fixed_sign)}"
+        )
+        ax6.fill_between(x, avg - sem, avg + sem, alpha=0.3)
+
+    ax6.set_ylabel("TD Error (avg)")
+    ax6.set_xlabel("Trial Num")
+    ax6.set_title("Temporal Difference Error", fontsize=9)
+    ax6.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0), borderaxespad=0, frameon=False, fontsize=6)
     
-    ax5.bar(labels_stuck, totals, color='skyblue')
-    ax5.set_ylabel("Total Stuck Counts")
-    ax5.set_title("Total Stuck Counts Per Network Type")
-    ax5.set_xticklabels(labels_stuck, rotation=45, ha='right')
     
     
     # # Success/performance by omission level

@@ -32,10 +32,10 @@ from trainfuntions import set_global_seeds, setup_model, setup_buffer, train_ope
 experiment_params = {
     "kd_values":        [0],   # sweep over kd (add values as needed)
     "omission_probs":   [0],   # sweep over omission probability
-    "repeats":          10,     # repeats per combination
+    "repeats":          1,     # repeats per combination
     "max_batch_sizes":  [1],   # grid values for max_batch_size
     "num_recents":      [1],   # grid values for num_recent
-    "eplhb_fixed_sign": [True, False]
+    "eplhb_fixed_sign": [True]
 }
 seed = 23
 
